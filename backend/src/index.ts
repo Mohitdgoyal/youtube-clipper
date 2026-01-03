@@ -1,5 +1,7 @@
-import express from "express";
 import dotenv from "dotenv";
+dotenv.config();
+
+import express from "express";
 import cors from "cors";
 import { PORT, ALLOWED_ORIGIN } from "./constants";
 import { authMiddleware } from "./middleware/auth.middleware";
@@ -7,8 +9,6 @@ import jobRoutes from "./routes/job.routes";
 import formatRoutes from "./routes/format.routes";
 import { errorMiddleware } from "./middleware/error.middleware";
 import { dbService } from "./services/storage.service";
-
-dotenv.config();
 
 const app = express();
 

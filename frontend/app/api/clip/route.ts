@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/db";
-import { user } from "@/lib/schema";
-import { eq } from "drizzle-orm";
+
 
 export async function POST(req: NextRequest) {
   const userId = "personal-user";
@@ -22,7 +20,7 @@ export async function POST(req: NextRequest) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.BACKEND_SECRET}`
+      "Authorization": `Bearer ${process.env.BACKEND_SECRET || 'dev-secret'}`
     },
     body: JSON.stringify(backendPayload),
   });

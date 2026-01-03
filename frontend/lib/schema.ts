@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean, integer } from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
 	id: text('id').primaryKey(),
@@ -45,4 +45,27 @@ export const verification = pgTable("verification", {
 	expiresAt: timestamp('expires_at').notNull(),
 	createdAt: timestamp('created_at'),
 	updatedAt: timestamp('updated_at')
+});
+
+export const clips = pgTable("clips", {
+	id: text("id").primaryKey(),
+	userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+	url: text("url").notNull(),
+	title: text("title").notNull(),
+	startTime: text("start_time").notNull(),
+	endTime: text("end_time").notNull(),
+	publicUrl: text("public_url").notNull(),
+	thumbnail: text("thumbnail"),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const jobs = pgTable("jobs", {
+	id: text("id").primaryKey(),
+	userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+	status: text("status").notNull().default("processing"),
+	progress: integer("progress").default(0),
+	error: text("error"),
+	publicUrl: text("public_url"),
+	storagePath: text("storage_path"),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
 });

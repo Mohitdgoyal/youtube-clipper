@@ -1,6 +1,6 @@
 {
-  "id": "409b62a9-92ca-407c-a8ed-4be3b3a46d0e",
-  "prevId": "80e329ef-4c3a-4fcf-b626-c75f615b0ca0",
+  "id": "5814ba4b-7cd1-4532-800c-d8a0ace06686",
+  "prevId": "409b62a9-92ca-407c-a8ed-4be3b3a46d0e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -109,6 +109,88 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.clips": {
+      "name": "clips",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "start_time": {
+          "name": "start_time",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "end_time": {
+          "name": "end_time",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "public_url": {
+          "name": "public_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "thumbnail": {
+          "name": "thumbnail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "clips_user_id_user_id_fk": {
+          "name": "clips_user_id_user_id_fk",
+          "tableFrom": "clips",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.jobs": {
       "name": "jobs",
       "schema": "",
@@ -129,10 +211,11 @@
           "name": "status",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "'processing'"
         },
-        "storage_path": {
-          "name": "storage_path",
+        "error": {
+          "name": "error",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -143,28 +226,14 @@
           "primaryKey": false,
           "notNull": false
         },
-        "error": {
-          "name": "error",
+        "storage_path": {
+          "name": "storage_path",
           "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "is_large_file": {
-          "name": "is_large_file",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "default": false
-        },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
@@ -176,63 +245,6 @@
         "jobs_user_id_user_id_fk": {
           "name": "jobs_user_id_user_id_fk",
           "tableFrom": "jobs",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.payment": {
-      "name": "payment",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "payment_user_id_user_id_fk": {
-          "name": "payment_user_id_user_id_fk",
-          "tableFrom": "payment",
           "tableTo": "user",
           "columnsFrom": [
             "user_id"
@@ -366,6 +378,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "download_count": {
+          "name": "download_count",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'0'"
         },
         "created_at": {
           "name": "created_at",

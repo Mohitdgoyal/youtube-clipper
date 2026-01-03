@@ -6,7 +6,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
 });
 
 export const storageService = {
-    async uploadFile(path: string, buffer: Buffer, contentType: string = 'video/mp4') {
+    async uploadFile(path: string, buffer: Buffer | NodeJS.ReadableStream, contentType: string = 'video/mp4') {
         const { error } = await supabase.storage
             .from(BUCKET_NAME)
             .upload(path, buffer, {

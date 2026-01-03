@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   try {
     const response = await fetch(`${backendUrl}/api/formats?url=${encodeURIComponent(url)}`, {
       headers: {
-        "Authorization": `Bearer ${process.env.BACKEND_SECRET}`
+        "Authorization": `Bearer ${process.env.BACKEND_SECRET || 'dev-secret'}`
       }
     });
 

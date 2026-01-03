@@ -4,11 +4,9 @@ import path from "path";
 import fs from "fs";
 import { UPLOADS_DIR } from "../constants";
 
-const router = Router();
+import { createJobId } from "../utils/ids";
 
-function createJobId() {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
+const router = Router();
 
 router.get("/formats", async (req, res) => {
     const { url } = req.query;
@@ -17,7 +15,10 @@ router.get("/formats", async (req, res) => {
     }
 
     try {
-        const ytDlpPath = path.resolve(__dirname, '../../bin/yt-dlp');
+        const binDir = path.resolve(__dirname, '../../bin');
+        const ytDlpPath = fs.existsSync(path.join(binDir, 'yt-dlp.exe'))
+            ? path.join(binDir, 'yt-dlp.exe')
+            : path.join(binDir, 'yt-dlp');
         const ytArgs = [
             '-j',
             '--no-warnings',
@@ -41,13 +42,14 @@ router.get("/formats", async (req, res) => {
 
             try {
                 const info = JSON.parse(jsonData);
-                const MAX_PIXELS = 1920 * 1080;
+                // Supporting up to 8K pixels for personal use
+                const MAX_PIXELS = 7680 * 4320;
 
                 const videoFormats = info.formats
                     .filter((f: any) => f.vcodec !== 'none' && f.height && f.width && (f.width * f.height <= MAX_PIXELS) && (f.ext === 'mp4' || f.ext === 'webm'))
                     .map((f: any) => ({
                         format_id: f.format_id,
-                        label: `${f.height}p${f.fps > 30 ? f.fps : ''}`,
+                        label: `${f.height}p${f.fps > 30 ? f.fps : ''}${f.vcodec.includes('av01') ? ' (AV1)' : ''}`,
                         height: f.height,
                         hasAudio: f.acodec !== 'none'
                     }))

@@ -2,8 +2,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, ArrowDown, Monitor, Smartphone, Square } from "lucide-react";
-import { motion } from "motion/react";
+import { Loader2, ArrowDown } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { Progress } from "@/components/ui/progress";
 
 interface ClipFormProps {
     url: string;
@@ -15,24 +16,24 @@ interface ClipFormProps {
     addSubs: boolean;
     setAddSubs: (subs: boolean) => void;
     loading: boolean;
+    progress?: number;
     handleSubmit: (e: React.FormEvent) => void;
-    cropRatio: "original" | "vertical" | "square";
-    setCropRatio: (ratio: "original" | "vertical" | "square") => void;
+
     formats: { format_id: string; label: string }[];
     selectedFormat: string;
     setSelectedFormat: (format: string) => void;
+    isBulk: boolean;
+    setIsBulk: (bulk: boolean) => void;
+    bulkTimestamps: string;
+    setBulkTimestamps: (ts: string) => void;
 }
-
-const resolutionOptions = {
-    original: { icon: <Monitor className="w-4 h-4" />, label: "Original" },
-    vertical: { icon: <Smartphone className="w-4 h-4" />, label: "Vertical" },
-    square: { icon: <Square className="w-4 h-4" />, label: "Square" },
-} as const;
 
 export default function ClipForm({
     url, setUrl, startTime, setStartTime, endTime, setEndTime,
-    addSubs, setAddSubs, loading, handleSubmit,
-    cropRatio, setCropRatio, formats, selectedFormat, setSelectedFormat
+    addSubs, setAddSubs, loading, progress = 0, handleSubmit,
+    formats, selectedFormat, setSelectedFormat,
+
+    isBulk, setIsBulk, bulkTimestamps, setBulkTimestamps
 }: ClipFormProps) {
     return (
         <motion.form
@@ -40,105 +41,138 @@ export default function ClipForm({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             onSubmit={handleSubmit}
-            className="flex flex-col gap-12 border p-4 bg-card rounded-3xl"
+            className="flex flex-col gap-10 border p-4 bg-card rounded-3xl"
         >
-            <div className="flex items-center gap-2 w-full">
-                <input
-                    type="text"
-                    id="url"
-                    placeholder="Paste video url here..."
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    required
-                    className="bg-transparent border-none outline-none w-full"
-                />
-                <Button type="submit" size="icon" disabled={loading}>
-                    {loading ? (
-                        <Loader2 className="w-6 h-6 animate-spin" />
-                    ) : (
-                        <ArrowDown className="w-6 h-6" />
+            <div className="flex flex-col gap-4 w-full">
+                <div className="flex items-center gap-2 w-full">
+                    <input
+                        type="text"
+                        id="url"
+                        placeholder="Paste video url here..."
+                        value={url}
+                        onChange={(e) => setUrl(e.target.value)}
+                        required
+                        className="bg-transparent border-none outline-none w-full px-2"
+                    />
+                    <Button type="submit" size="icon" disabled={loading} className="rounded-xl shrink-0">
+                        {loading ? (
+                            <Loader2 className="w-6 h-6 animate-spin" />
+                        ) : (
+                            <ArrowDown className="w-6 h-6" />
+                        )}
+                    </Button>
+                </div>
+
+                <AnimatePresence>
+                    {loading && (
+                        <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="w-full px-2"
+                        >
+                            <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                                <span>Processing...</span>
+                                <span>{progress}%</span>
+                            </div>
+                            <Progress value={progress} className="h-1.5" />
+                        </motion.div>
                     )}
-                </Button>
+                </AnimatePresence>
             </div>
 
-            <div className="flex flex-col gap-2 w-full">
-                <div className="flex gap-3 w-full items-center">
-                    <div className="flex flex-col gap-2 w-full">
-                        <Label htmlFor="startTime" className="sr-only">Start Time</Label>
-                        <Input
-                            type="text"
-                            id="startTime"
-                            value={startTime}
-                            onChange={(e) => setStartTime(e.target.value)}
-                            pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}"
-                            placeholder="00:00:00"
-                            required
-                            className="font-mono text-sm"
-                        />
-                    </div>
-                    <span className="text-sm text-muted-foreground">to</span>
-                    <div className="flex flex-col gap-2 w-full">
-                        <Label htmlFor="endTime" className="sr-only">End Time</Label>
-                        <Input
-                            type="text"
-                            id="endTime"
-                            value={endTime}
-                            onChange={(e) => setEndTime(e.target.value)}
-                            pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}"
-                            placeholder="00:00:00"
-                            required
-                            className="font-mono text-sm"
-                        />
-                    </div>
+            <div className="flex flex-col gap-6 w-full">
+                <div className="flex items-center justify-between px-1">
+                    <Label className="text-sm font-medium">Bulk Mode</Label>
+                    <Switch checked={isBulk} onCheckedChange={setIsBulk} />
                 </div>
 
-                <div className="flex flex-col gap-2 w-full">
-                    <div className="flex items-center justify-between p-2 rounded-2xl border relative bg-white/5 backdrop-blur-md">
-                        {Object.entries(resolutionOptions).map(([key, { icon, label }]) => (
-                            <div
-                                key={key}
-                                onClick={() => setCropRatio(key as any)}
-                                className="relative cursor-pointer w-full group text-center py-1.5 px-4"
+                {isBulk ? (
+                    <div className="flex flex-col gap-2 w-full">
+                        <Label htmlFor="bulkTimestamps" className="text-xs text-muted-foreground mb-1">
+                            Enter ranges (e.g., 00:01:00-00:02:00) one per line
+                        </Label>
+                        <textarea
+                            id="bulkTimestamps"
+                            value={bulkTimestamps}
+                            onChange={(e) => setBulkTimestamps(e.target.value)}
+                            placeholder={"00:01:00-00:02:00\n00:05:30-00:06:15"}
+                            className="w-full bg-background border rounded-2xl p-4 min-h-[120px] font-mono text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                        />
+                    </div>
+                ) : (
+                    <div className="flex gap-3 w-full items-center">
+                        <div className="flex flex-col gap-2 w-full">
+                            <Label htmlFor="startTime" className="sr-only">Start Time</Label>
+                            <Input
+                                type="text"
+                                id="startTime"
+                                value={startTime}
+                                onChange={(e) => setStartTime(e.target.value)}
+                                pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}"
+                                placeholder="00:00:00"
+                                required={!isBulk}
+                                className="font-mono text-sm h-12 rounded-2xl"
+                            />
+                        </div>
+                        <span className="text-sm text-muted-foreground">to</span>
+                        <div className="flex flex-col gap-2 w-full">
+                            <Label htmlFor="endTime" className="sr-only">End Time</Label>
+                            <Input
+                                type="text"
+                                id="endTime"
+                                value={endTime}
+                                onChange={(e) => setEndTime(e.target.value)}
+                                pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}"
+                                placeholder="00:00:00"
+                                required={!isBulk}
+                                className="font-mono text-sm h-12 rounded-2xl"
+                            />
+                        </div>
+                    </div>
+                )}
+
+
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+                    <div className="flex flex-col gap-2">
+                        <Label htmlFor="quality">Video Quality</Label>
+                        <div className="relative group">
+                            <select
+                                id="quality"
+                                value={selectedFormat}
+                                onChange={(e) => setSelectedFormat(e.target.value)}
+                                className="w-full bg-background border rounded-2xl p-2.5 h-12 appearance-none pr-10 focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
+                                disabled={formats.length === 0}
                             >
-                                {cropRatio === key && (
-                                    <motion.div
-                                        layoutId="hover"
-                                        className="absolute inset-0 bg-primary rounded-md"
-                                        transition={{ type: "spring", stiffness: 120, damping: 10, mass: 0.2 }}
-                                    />
+                                {formats.length === 0 ? (
+                                    <option value="">Fetching formats...</option>
+                                ) : (
+                                    <>
+                                        <optgroup label="Optimized">
+                                            <option value="">Best available</option>
+                                        </optgroup>
+                                        <optgroup label="Specific Resolutions">
+                                            {formats.map((f) => (
+                                                <option key={f.format_id} value={f.format_id}>
+                                                    {f.label}
+                                                </option>
+                                            ))}
+                                        </optgroup>
+                                    </>
                                 )}
-                                <span className={`relative flex text-xs sm:text-sm items-center gap-2 justify-center ${cropRatio === key ? "text-primary-foreground" : "text-foreground"}`}>
-                                    {icon}
-                                    <span>{label}</span>
-                                </span>
+                            </select>
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                                <ArrowDown className="w-4 h-4" />
                             </div>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-4 w-full">
-                    <div className="flex flex-col gap-2 flex-1">
-                        <Label htmlFor="quality">Quality</Label>
-                        <select
-                            id="quality"
-                            value={selectedFormat}
-                            onChange={(e) => setSelectedFormat(e.target.value)}
-                            className="bg-transparent border rounded-md p-2 h-10 appearance-none pr-8"
-                            disabled={formats.length === 0}
-                        >
-                            {formats.length === 0 ? (
-                                <option value="">Loading formats...</option>
-                            ) : (
-                                formats.map((f) => <option key={f.format_id} value={f.format_id}>{f.label}</option>)
-                            )}
-                        </select>
+                        </div>
                     </div>
 
-                    <div className="flex flex-col gap-2 flex-1">
+                    <div className="flex flex-col gap-2">
                         <Label htmlFor="subtitles-switch">Subtitles</Label>
-                        <div className="flex items-center space-x-2 h-10">
+                        <div className="flex items-center justify-between bg-muted/30 border rounded-2xl px-4 h-12">
+                            <span className="text-xs text-muted-foreground font-medium">English (Auto)</span>
                             <Switch id="subtitles-switch" checked={addSubs} onCheckedChange={setAddSubs} />
-                            <Label htmlFor="subtitles-switch" className="text-sm text-muted-foreground">English only</Label>
                         </div>
                     </div>
                 </div>

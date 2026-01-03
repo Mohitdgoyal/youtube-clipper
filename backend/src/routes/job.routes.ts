@@ -5,16 +5,22 @@ import { UPLOADS_DIR } from "../constants";
 import path from "path";
 import fs from "fs";
 
-const router = Router();
+import { createJobId } from "../utils/ids";
+import { timeToSeconds } from "../utils/time";
 
-function createJobId() {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
+const router = Router();
 
 router.post("/clip", async (req, res) => {
     const { url, startTime, endTime, subtitles, formatId, userId } = req.body || {};
     if (!url || !startTime || !endTime || !userId) {
         return res.status(400).json({ error: "url, startTime, endTime and userId are required" });
+    }
+
+    const startSec = timeToSeconds(startTime);
+    const endSec = timeToSeconds(endTime);
+
+    if (isNaN(startSec) || isNaN(endSec) || startSec >= endSec) {
+        return res.status(400).json({ error: "Invalid timestamps: endTime must be greater than startTime" });
     }
 
     const id = createJobId();
@@ -28,8 +34,29 @@ router.post("/clip", async (req, res) => {
     // Process in background
     (async () => {
         let finalJobStatus: any = {};
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+            controller.abort();
+        }, 10 * 60 * 1000); // 10 minutes
+
         try {
-            const inputPath = await videoService.downloadAndClip(id, { url, startTime, endTime, subtitles, formatId });
+            const startSec = timeToSeconds(startTime);
+            const endSec = timeToSeconds(endTime);
+            const durationSeconds = endSec - startSec;
+
+            const updateProgress = async (p: number) => {
+                await dbService.updateJob(id, { progress: p });
+            };
+
+            const inputPath = await videoService.downloadAndClip(id, {
+                url,
+                startTime,
+                endTime,
+                subtitles,
+                formatId,
+                signal: controller.signal,
+                onProgress: updateProgress
+            });
             const fastPath = path.join(UPLOADS_DIR, `clip-${id}-fast.mp4`);
             const subPath = inputPath.replace(/\.mp4$/, ".en.vtt");
             const subtitlesExist = fs.existsSync(subPath);
@@ -40,23 +67,37 @@ router.post("/clip", async (req, res) => {
                 await fs.promises.rename(adjustedSubPath, subPath);
             }
 
-            await videoService.processWithFFmpeg(inputPath, fastPath, { subtitles, subPath: subtitlesExist ? subPath : undefined });
+            await videoService.processWithFFmpeg(inputPath, fastPath, {
+                subtitles,
+                subPath: subtitlesExist ? subPath : undefined,
+                signal: controller.signal,
+                onProgress: updateProgress,
+                durationSeconds
+            });
 
             await fs.promises.unlink(inputPath).catch(() => { });
-            const fileBuffer = await fs.promises.readFile(fastPath);
-            const storagePath = `clip-${id}.mp4`;
+            await fs.promises.unlink(inputPath).catch(() => { });
 
-            const publicUrl = await storageService.uploadFile(storagePath, fileBuffer);
+            const storagePath = `clip-${id}.mp4`;
+            const fileStream = fs.createReadStream(fastPath);
+
+            const publicUrl = await storageService.uploadFile(storagePath, fileStream);
             await fs.promises.unlink(fastPath).catch(() => { });
 
             finalJobStatus = {
                 storage_path: storagePath,
                 public_url: publicUrl,
                 status: 'ready',
+                progress: 100
             };
         } catch (err: any) {
-            finalJobStatus = { status: 'error', error: err.message };
+            if (err.message === 'Aborted') {
+                finalJobStatus = { status: 'error', error: 'Job timed out (limit: 10 mins)' };
+            } else {
+                finalJobStatus = { status: 'error', error: err.message };
+            }
         } finally {
+            clearTimeout(timeoutId);
             await dbService.updateJob(id, finalJobStatus);
         }
     })();

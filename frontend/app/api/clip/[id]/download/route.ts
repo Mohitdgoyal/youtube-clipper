@@ -11,7 +11,7 @@ export async function GET(
     const backendUrl = process.env.BACKEND_API_URL || 'http://localhost:3001';
     const statusRes = await fetch(`${backendUrl}/api/clip/${id}`, {
       headers: {
-        "Authorization": `Bearer ${process.env.BACKEND_SECRET}`
+        "Authorization": `Bearer ${process.env.BACKEND_SECRET || 'dev-secret'}`
       }
     });
 

@@ -12,14 +12,11 @@ export const ALLOWED_ORIGIN = process.env.NODE_ENV === "production"
     : "http://localhost:3000";
 
 export const UPLOADS_DIR = path.join(__dirname, "../../uploads");
-export const JOBS_DIR = path.join(__dirname, "../../jobs");
 
 // Ensure directories exist
 if (!fs.existsSync(UPLOADS_DIR)) {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
-if (!fs.existsSync(JOBS_DIR)) {
-    fs.mkdirSync(JOBS_DIR, { recursive: true });
-}
+
 
 export const BACKEND_SECRET = process.env.BACKEND_SECRET || 'dev-secret';

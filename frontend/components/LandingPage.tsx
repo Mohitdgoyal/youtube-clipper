@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import SignInModal from "@/components/sign-in";
+// import SignInModal from "@/components/sign-in";
 import { motion } from "motion/react";
 import Link from "next/link";
 
@@ -44,7 +44,7 @@ export default function LandingPage() {
                     animate="animate"
                     transition={{ duration: 0.5, delay: 0.2 }}
                 >
-                    <SignInModal trigger={<Button size="lg">Get started</Button>} />
+                    <Button size="lg">Get started</Button>
                 </motion.div>
             </div>
 

@@ -28,15 +28,19 @@ export const videoService = {
         url: string,
         startTime: string,
         endTime: string,
-        subtitles?: boolean,
-        formatId?: string
+        subtitles?: boolean;
+        formatId?: string;
+        signal?: AbortSignal;
+        onProgress?: (progress: number) => void;
     }) {
         const outputPath = path.join(UPLOADS_DIR, `clip-${id}.mp4`);
-        const { url, startTime, endTime, subtitles, formatId } = options;
-        const section = `*${startTime}-${endTime}`;
-
-        const ytDlpPath = path.resolve(__dirname, '../../bin/yt-dlp');
+        const { url, startTime, endTime, subtitles, formatId, signal, onProgress } = options;
+        const binDir = path.resolve(__dirname, '../../bin');
+        const ytDlpPath = fs.existsSync(path.join(binDir, 'yt-dlp.exe'))
+            ? path.join(binDir, 'yt-dlp.exe')
+            : path.join(binDir, 'yt-dlp');
         const ytArgs = [url];
+        const section = `*${startTime}-${endTime}`;
 
         if (formatId) {
             ytArgs.push("-f", formatId);
@@ -65,16 +69,52 @@ export const videoService = {
 
         const yt = spawn(ytDlpPath, ytArgs);
 
+        let stderrData = '';
+        yt.stderr.on('data', (data) => {
+            const str = data.toString();
+            stderrData += str;
+
+            // Expected output: [download]  12.3% of 10.00MiB at 1.23MiB/s ETA 00:05
+            const match = str.match(/\[download\]\s+(\d+\.\d+)%/);
+            if (match && onProgress) {
+                const percent = parseFloat(match[1]);
+                // Map 0-100% download to 0-50% overall
+                onProgress(Math.round(percent / 2));
+            }
+        });
+
+        if (signal) {
+            signal.addEventListener('abort', () => {
+                yt.kill();
+            });
+        }
+
         await new Promise<void>((resolve, reject) => {
-            yt.on('close', (code) => code === 0 ? resolve() : reject(new Error(`yt-dlp exited with code ${code}`)));
+            yt.on('close', (code) => {
+                if (signal?.aborted) {
+                    reject(new Error('Aborted'));
+                    return;
+                }
+                if (code === 0) {
+                    resolve();
+                } else {
+                    reject(new Error(`yt-dlp exited with code ${code}: ${stderrData}`));
+                }
+            });
             yt.on('error', reject);
         });
 
         return outputPath;
     },
 
-    async processWithFFmpeg(inputPath: string, outputPath: string, options: { subtitles?: boolean, subPath?: string }) {
-        const { subtitles, subPath } = options;
+    async processWithFFmpeg(inputPath: string, outputPath: string, options: {
+        subtitles?: boolean,
+        subPath?: string,
+        signal?: AbortSignal,
+        onProgress?: (progress: number) => void,
+        durationSeconds?: number
+    }) {
+        const { subtitles, subPath, signal, onProgress, durationSeconds } = options;
         const ffmpegArgs = ['-y', '-i', inputPath];
 
         if (subtitles && subPath && fs.existsSync(subPath)) {
@@ -94,8 +134,36 @@ export const videoService = {
 
         const ff = spawn('ffmpeg', ffmpegArgs);
 
+        if (onProgress) onProgress(50); // Start processing phase
+
+        ff.stderr.on('data', (data) => {
+            const str = data.toString();
+            // Parse time=00:00:05.12
+            const match = str.match(/time=(\d{2}:\d{2}:\d{2}\.\d{2})/);
+            if (match && durationSeconds && onProgress) {
+                const timeStr = match[1];
+                const parts = timeStr.split(':');
+                const seconds = (+parts[0]) * 3600 + (+parts[1]) * 60 + (+parts[2]);
+                const percent = Math.min(100, Math.round((seconds / durationSeconds) * 100));
+                // Map 0-100% of processing to 50-100% overall
+                onProgress(50 + Math.round(percent / 2));
+            }
+        });
+
+        if (signal) {
+            signal.addEventListener('abort', () => {
+                ff.kill();
+            });
+        }
+
         await new Promise<void>((resolve, reject) => {
-            ff.on('close', (code) => code === 0 ? resolve() : reject(new Error(`ffmpeg exited with code ${code}`)));
+            ff.on('close', (code) => {
+                if (signal?.aborted) {
+                    reject(new Error('Aborted'));
+                    return;
+                }
+                code === 0 ? resolve() : reject(new Error(`ffmpeg exited with code ${code}`));
+            });
             ff.on('error', reject);
         });
     }
