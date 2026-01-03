@@ -56,9 +56,10 @@ export const videoService = {
             "--no-warnings",
             "--add-header", "referer:youtube.com",
             "--add-header", "user-agent:Mozilla/5.0",
-            "--concurrent-fragments", "5",
+            "--concurrent-fragments", "8",
             "--downloader", "ffmpeg",
-            "--buffer-size", "16K"
+            "--buffer-size", "16K",
+            "--force-keyframes-at-cuts"
         );
 
         if (subtitles) {
@@ -118,7 +119,7 @@ export const videoService = {
         durationSeconds?: number
     }) {
         const { subtitles, subPath, signal, onProgress, durationSeconds } = options;
-        const ffmpegArgs = ['-y', '-i', inputPath];
+        const ffmpegArgs = ['-y', '-hwaccel', 'auto', '-i', inputPath];
 
         if (subtitles && subPath && fs.existsSync(subPath)) {
             ffmpegArgs.push(

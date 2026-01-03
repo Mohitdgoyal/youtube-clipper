@@ -39,11 +39,13 @@ export default function ClipForm({
 }: ClipFormProps) {
     return (
         <motion.form
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
             onSubmit={handleSubmit}
             className="flex flex-col gap-10 border p-4 bg-card rounded-3xl"
+            style={{ willChange: 'opacity, transform' }}
         >
             <div className="flex flex-col gap-4 w-full">
                 <div className="flex items-center gap-2 w-full">
@@ -71,6 +73,7 @@ export default function ClipForm({
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: "auto", opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.15, ease: "easeOut" }}
                             className="w-full px-2 py-4 bg-muted/20 rounded-2xl border border-primary/20"
                         >
                             <div className="flex justify-between items-center mb-3">

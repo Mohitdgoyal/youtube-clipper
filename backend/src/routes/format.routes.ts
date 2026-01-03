@@ -3,15 +3,33 @@ import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
 import { UPLOADS_DIR } from "../constants";
+import { metadataCache, createCacheKey } from "../services/cache.service";
 
 import { createJobId } from "../utils/ids";
 
 const router = Router();
 
+interface FormatInfo {
+    format_id: string;
+    label: string;
+}
+
+interface CachedMetadata {
+    formats: FormatInfo[];
+    cachedAt: number;
+}
+
 router.get("/formats", async (req, res) => {
     const { url } = req.query;
     if (!url || typeof url !== 'string') {
         return res.status(400).json({ error: "url is required" });
+    }
+
+    // Check cache first
+    const cacheKey = createCacheKey(url);
+    const cached = metadataCache.get<CachedMetadata>(cacheKey);
+    if (cached) {
+        return res.json({ formats: cached.formats, cached: true });
     }
 
     try {
@@ -65,10 +83,16 @@ router.get("/formats", async (req, res) => {
                     return acc;
                 }, []);
 
-                const formatsForUser = uniqueFormats.map((f: any) => ({
+                const formatsForUser: FormatInfo[] = uniqueFormats.map((f: any) => ({
                     format_id: f.hasAudio ? f.format_id : `${f.format_id}+bestaudio`,
                     label: f.label
                 }));
+
+                // Cache the result for 5 minutes
+                metadataCache.set<CachedMetadata>(cacheKey, {
+                    formats: formatsForUser,
+                    cachedAt: Date.now()
+                });
 
                 return res.json({ formats: formatsForUser });
             } catch (e) {

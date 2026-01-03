@@ -1,11 +1,14 @@
-import { useRef, useState, useEffect, useCallback } from "react";
-import YouTube from "react-youtube";
+import { useRef, useState, useEffect, useCallback, Suspense, lazy } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { Timer, Scissors, Play, Pause } from "lucide-react";
 import { getVideoId, timeToSeconds, secondsToTime } from "@/lib/utils";
 import { TimelineSlider } from "@/components/editor/TimelineSlider";
 import { KeyboardShortcutsInfo } from "@/components/editor/KeyboardShortcutsInfo";
+import { Skeleton } from "@/components/ui/skeleton";
+
+// Lazy load YouTube player for faster initial render
+const YouTube = lazy(() => import("react-youtube"));
 
 interface VideoPreviewProps {
     isLoading: boolean;
@@ -17,6 +20,31 @@ interface VideoPreviewProps {
     endTime?: string;
     onSetStartTime: (time: string, isSeek?: boolean) => void;
     onSetEndTime: (time: string) => void;
+}
+
+// Optimized animation variants with reduced complexity
+const fadeVariants = {
+    initial: { opacity: 0, y: 10 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: -10 }
+};
+
+const transitionConfig = {
+    duration: 0.2,
+    ease: "easeOut"
+};
+
+// Loading skeleton for YouTube player
+function YouTubeLoadingSkeleton() {
+    return (
+        <div className="w-full h-full bg-black flex items-center justify-center">
+            <Skeleton className="absolute inset-0" />
+            <div className="relative z-10 flex flex-col items-center gap-3 text-white/60">
+                <div className="w-16 h-16 rounded-full border-4 border-white/20 border-t-white/60 animate-spin" />
+                <span className="text-sm">Loading player...</span>
+            </div>
+        </div>
+    );
 }
 
 export default function VideoPreview({
@@ -32,6 +60,7 @@ export default function VideoPreview({
     const playerRef = useRef<any>(null);
     const [duration, setDuration] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
+    const [playerReady, setPlayerReady] = useState(false);
 
     // Timer to track current time for finding "current playhead" if needed, 
     // though playerRef.current.getCurrentTime() is better for immediate actions.
@@ -128,9 +157,11 @@ export default function VideoPreview({
             {!videoId ? (
                 <motion.h1
                     key="empty"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
+                    variants={fadeVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    transition={transitionConfig}
                     className="text-2xl lg:text-3xl font-medium tracking-tight text-center mx-auto"
                 >
                     What do you wanna clip?
@@ -138,39 +169,43 @@ export default function VideoPreview({
             ) : (
                 <motion.div
                     key="content"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
+                    variants={fadeVariants}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    transition={transitionConfig}
                     className="flex flex-col gap-4 w-full"
+                    style={{ willChange: 'opacity, transform' }}
                 >
                     <div className="relative aspect-video w-full rounded-2xl overflow-hidden border bg-black shadow-2xl group">
-                        <YouTube
-                            videoId={videoId}
-                            className="w-full h-full"
-                            opts={{
-                                width: '100%',
-                                height: '100%',
-                                playerVars: {
-                                    autoplay: 0,
-                                    modestbranding: 1,
-                                    rel: 0,
-                                    fs: 0,
-                                },
-                            }}
-                            onReady={(event) => {
-                                playerRef.current = event.target;
-                                setDuration(event.target.getDuration());
-                            }}
-                            onStateChange={(e) => {
-                                setIsPlaying(e.data === 1); // 1 = playing
-                            }}
-                        />
+                        <Suspense fallback={<YouTubeLoadingSkeleton />}>
+                            <YouTube
+                                videoId={videoId}
+                                className="w-full h-full"
+                                opts={{
+                                    width: '100%',
+                                    height: '100%',
+                                    playerVars: {
+                                        autoplay: 0,
+                                        modestbranding: 1,
+                                        rel: 0,
+                                        fs: 0,
+                                    },
+                                }}
+                                onReady={(event: { target: any }) => {
+                                    playerRef.current = event.target;
+                                    setDuration(event.target.getDuration());
+                                    setPlayerReady(true);
+                                }}
+                                onStateChange={(e: { data: number }) => {
+                                    setIsPlaying(e.data === 1); // 1 = playing
+                                }}
+                            />
+                        </Suspense>
                         {isLoading && (
                             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-10">
-                                <motion.div
-                                    animate={{ rotate: 360 }}
-                                    transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-                                    className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full"
+                                <div
+                                    className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"
                                 />
                             </div>
                         )}
@@ -226,3 +261,4 @@ export default function VideoPreview({
         </AnimatePresence>
     );
 }
+
