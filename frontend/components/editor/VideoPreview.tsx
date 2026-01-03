@@ -1,37 +1,40 @@
-import { useRef } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import YouTube from "react-youtube";
 import { motion, AnimatePresence } from "motion/react";
 import { Button } from "@/components/ui/button";
-import { Timer, Scissors } from "lucide-react";
-import { getVideoId } from "@/lib/utils";
+import { Timer, Scissors, Play, Pause } from "lucide-react";
+import { getVideoId, timeToSeconds, secondsToTime } from "@/lib/utils";
+import { TimelineSlider } from "@/components/editor/TimelineSlider";
+import { KeyboardShortcutsInfo } from "@/components/editor/KeyboardShortcutsInfo";
 
 interface VideoPreviewProps {
     isLoading: boolean;
     thumbnailUrl: string | null;
     title?: string;
     url: string;
-    onSetStartTime: (time: string) => void;
+    // We add these props to control the slider
+    startTime?: string;
+    endTime?: string;
+    onSetStartTime: (time: string, isSeek?: boolean) => void;
     onSetEndTime: (time: string) => void;
 }
 
 export default function VideoPreview({
     isLoading,
-    // thumbnailUrl,
     title,
     url,
+    startTime = "00:00:00",
+    endTime = "00:00:00",
     onSetStartTime,
     onSetEndTime
 }: VideoPreviewProps) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const playerRef = useRef<any>(null);
+    const [duration, setDuration] = useState(0);
+    const [isPlaying, setIsPlaying] = useState(false);
 
-
-
-    // const getVideoId = (url: string) => {
-    //     const regExp = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
-    //     const match = url.match(regExp);
-    //     return match && match[7].length === 11 ? match[7] : null;
-    // };
+    // Timer to track current time for finding "current playhead" if needed, 
+    // though playerRef.current.getCurrentTime() is better for immediate actions.
 
     const videoId = getVideoId(url);
 
@@ -42,19 +45,83 @@ export default function VideoPreview({
         return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
-    const handleCaptureStart = () => {
+    const handleCaptureStart = useCallback(() => {
         if (playerRef.current) {
             const currentTime = playerRef.current.getCurrentTime();
             onSetStartTime(formatSeconds(currentTime));
         }
-    };
+    }, [onSetStartTime]);
 
-    const handleCaptureEnd = () => {
+    const handleCaptureEnd = useCallback(() => {
         if (playerRef.current) {
             const currentTime = playerRef.current.getCurrentTime();
             onSetEndTime(formatSeconds(currentTime));
         }
+    }, [onSetEndTime]);
+
+    const seekTo = (seconds: number) => {
+        if (playerRef.current) {
+            playerRef.current.seekTo(seconds, true);
+        }
     };
+
+    const handleTimelineChange = (newStart: string, newEnd: string) => {
+        const s = timeToSeconds(newStart);
+        const e = timeToSeconds(newEnd);
+
+        // If start changed, verify it's valid
+        if (newStart !== startTime) {
+            onSetStartTime(newStart);
+            // Optional: seek to start when dragging start handle for preview
+            seekTo(s);
+        }
+        if (newEnd !== endTime) {
+            onSetEndTime(newEnd);
+        }
+    };
+
+    // Keyboard Shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Ignore if typing in an input
+            if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
+
+            if (!playerRef.current) return;
+
+            switch (e.key.toLowerCase()) {
+                case ' ':
+                    e.preventDefault();
+                    if (isPlaying) playerRef.current.pauseVideo();
+                    else playerRef.current.playVideo();
+                    setIsPlaying(!isPlaying);
+                    break;
+                case 'i':
+                    handleCaptureStart();
+                    break;
+                case 'o':
+                    handleCaptureEnd();
+                    break;
+                case 'arrowleft': {
+                    e.preventDefault();
+                    const cur = playerRef.current.getCurrentTime();
+                    const amount = e.shiftKey ? 0.05 : 5; // shift for fine tune, though seekTo might be coarse on yt
+                    seekTo(Math.max(0, cur - amount));
+                    break;
+                }
+                case 'arrowright': {
+                    e.preventDefault();
+                    const cur = playerRef.current.getCurrentTime();
+                    const amount = e.shiftKey ? 0.05 : 5;
+                    seekTo(Math.min(duration, cur + amount));
+                    break;
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [duration, isPlaying, handleCaptureStart, handleCaptureEnd]);
+
 
     return (
         <AnimatePresence mode="wait">
@@ -76,7 +143,7 @@ export default function VideoPreview({
                     exit={{ opacity: 0, y: -20 }}
                     className="flex flex-col gap-4 w-full"
                 >
-                    <div className="relative aspect-video w-full rounded-2xl overflow-hidden border bg-black shadow-2xl">
+                    <div className="relative aspect-video w-full rounded-2xl overflow-hidden border bg-black shadow-2xl group">
                         <YouTube
                             videoId={videoId}
                             className="w-full h-full"
@@ -87,14 +154,19 @@ export default function VideoPreview({
                                     autoplay: 0,
                                     modestbranding: 1,
                                     rel: 0,
+                                    fs: 0,
                                 },
                             }}
                             onReady={(event) => {
                                 playerRef.current = event.target;
+                                setDuration(event.target.getDuration());
+                            }}
+                            onStateChange={(e) => {
+                                setIsPlaying(e.data === 1); // 1 = playing
                             }}
                         />
                         {isLoading && (
-                            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
+                            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-10">
                                 <motion.div
                                     animate={{ rotate: 360 }}
                                     transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
@@ -104,29 +176,48 @@ export default function VideoPreview({
                         )}
                     </div>
 
-                    <div className="flex flex-col gap-3">
-                        <h3 className="font-medium text-lg line-clamp-1 px-1">
-                            {title || "Loading video details..."}
-                        </h3>
+                    {/* Timeline & Controls */}
+                    <div className="flex flex-col gap-4 px-1">
+                        <div className="flex items-center justify-between">
+                            <h3 className="font-medium text-lg line-clamp-1 flex-1 mr-4">
+                                {title || "Untitled Video"}
+                            </h3>
+                            <KeyboardShortcutsInfo />
+                        </div>
 
-                        <div className="flex gap-2">
+                        {/* Scrubber */}
+                        <div className="px-2 pb-2 pt-1">
+                            <TimelineSlider
+                                duration={duration}
+                                startTime={startTime}
+                                endTime={endTime}
+                                onValueChange={handleTimelineChange}
+                            />
+                            <div className="flex justify-between text-xs text-muted-foreground mt-2 font-mono">
+                                <span>{startTime}</span>
+                                <span>{endTime}</span>
+                            </div>
+                        </div>
+
+                        {/* Quick Actions */}
+                        <div className="grid grid-cols-2 gap-3">
                             <Button
-                                variant="secondary"
+                                variant="outline"
                                 size="sm"
                                 onClick={handleCaptureStart}
-                                className="flex-1 bg-primary/10 hover:bg-primary/20 text-primary border-primary/20 rounded-xl"
+                                className="bg-background/50 backdrop-blur hover:bg-muted text-foreground border-border rounded-xl h-10"
                             >
                                 <Timer className="w-4 h-4 mr-2" />
-                                Set Start
+                                Set Start (I)
                             </Button>
                             <Button
-                                variant="secondary"
+                                variant="outline"
                                 size="sm"
                                 onClick={handleCaptureEnd}
-                                className="flex-1 bg-primary/10 hover:bg-primary/20 text-primary border-primary/20 rounded-xl"
+                                className="bg-background/50 backdrop-blur hover:bg-muted text-foreground border-border rounded-xl h-10"
                             >
                                 <Scissors className="w-4 h-4 mr-2" />
-                                Set End
+                                Set End (O)
                             </Button>
                         </div>
                     </div>

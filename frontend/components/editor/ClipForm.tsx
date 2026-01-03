@@ -2,7 +2,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, ArrowDown } from "lucide-react";
+import { Loader2, ArrowDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowRight } from "lucide-react";
+import { timeToSeconds, secondsToTime } from "@/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { Progress } from "@/components/ui/progress";
 
@@ -101,33 +102,149 @@ export default function ClipForm({
                         />
                     </div>
                 ) : (
-                    <div className="flex gap-3 w-full items-center">
+                    <div className="flex gap-4 w-full items-end">
                         <div className="flex flex-col gap-2 w-full">
-                            <Label htmlFor="startTime" className="sr-only">Start Time</Label>
-                            <Input
-                                type="text"
-                                id="startTime"
-                                value={startTime}
-                                onChange={(e) => setStartTime(e.target.value)}
-                                pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}"
-                                placeholder="00:00:00"
-                                required={!isBulk}
-                                className="font-mono text-sm h-12 rounded-2xl"
-                            />
+                            <Label htmlFor="startTime" className="text-xs font-medium text-muted-foreground ml-1">Start Time</Label>
+                            <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-2xl border">
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground"
+                                    onClick={() => {
+                                        const s = timeToSeconds(startTime);
+                                        setStartTime(secondsToTime(Math.max(0, s - 1)));
+                                    }}
+                                    title="-1s"
+                                >
+                                    <ChevronsLeft className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground"
+                                    onClick={() => {
+                                        const s = timeToSeconds(startTime);
+                                        setStartTime(secondsToTime(Math.max(0, s - 0.05)));
+                                    }}
+                                    title="-0.05s"
+                                >
+                                    <ChevronLeft className="w-4 h-4" />
+                                </Button>
+
+                                <Input
+                                    type="text"
+                                    id="startTime"
+                                    value={startTime}
+                                    onChange={(e) => setStartTime(e.target.value)}
+                                    // pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}"
+                                    placeholder="00:00:00"
+                                    required={!isBulk}
+                                    className="font-mono text-center text-sm h-10 border-none shadow-none bg-transparent focus-visible:ring-0 px-0"
+                                />
+
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground"
+                                    onClick={() => {
+                                        const s = timeToSeconds(startTime);
+                                        setStartTime(secondsToTime(s + 0.05));
+                                    }}
+                                    title="+0.05s"
+                                >
+                                    <ChevronRight className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground"
+                                    onClick={() => {
+                                        const s = timeToSeconds(startTime);
+                                        setStartTime(secondsToTime(s + 1));
+                                    }}
+                                    title="+1s"
+                                >
+                                    <ChevronsRight className="w-4 h-4" />
+                                </Button>
+                            </div>
                         </div>
-                        <span className="text-sm text-muted-foreground">to</span>
+
+                        <div className="pb-4 text-muted-foreground/30">
+                            <ArrowRight className="w-5 h-5" />
+                        </div>
+
                         <div className="flex flex-col gap-2 w-full">
-                            <Label htmlFor="endTime" className="sr-only">End Time</Label>
-                            <Input
-                                type="text"
-                                id="endTime"
-                                value={endTime}
-                                onChange={(e) => setEndTime(e.target.value)}
-                                pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}"
-                                placeholder="00:00:00"
-                                required={!isBulk}
-                                className="font-mono text-sm h-12 rounded-2xl"
-                            />
+                            <Label htmlFor="endTime" className="text-xs font-medium text-muted-foreground ml-1">End Time</Label>
+                            <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-2xl border">
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground"
+                                    onClick={() => {
+                                        const s = timeToSeconds(endTime);
+                                        setEndTime(secondsToTime(Math.max(0, s - 1)));
+                                    }}
+                                    title="-1s"
+                                >
+                                    <ChevronsLeft className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground"
+                                    onClick={() => {
+                                        const s = timeToSeconds(endTime);
+                                        setEndTime(secondsToTime(Math.max(0, s - 0.05)));
+                                    }}
+                                    title="-0.05s"
+                                >
+                                    <ChevronLeft className="w-4 h-4" />
+                                </Button>
+
+                                <Input
+                                    type="text"
+                                    id="endTime"
+                                    value={endTime}
+                                    onChange={(e) => setEndTime(e.target.value)}
+                                    // pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}"
+                                    placeholder="00:00:00"
+                                    required={!isBulk}
+                                    className="font-mono text-center text-sm h-10 border-none shadow-none bg-transparent focus-visible:ring-0 px-0"
+                                />
+
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground"
+                                    onClick={() => {
+                                        const s = timeToSeconds(endTime);
+                                        setEndTime(secondsToTime(s + 0.05));
+                                    }}
+                                    title="+0.05s"
+                                >
+                                    <ChevronRight className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground"
+                                    onClick={() => {
+                                        const s = timeToSeconds(endTime);
+                                        setEndTime(secondsToTime(s + 1));
+                                    }}
+                                    title="+1s"
+                                >
+                                    <ChevronsRight className="w-4 h-4" />
+                                </Button>
+                            </div>
                         </div>
                     </div>
                 )}

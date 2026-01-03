@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { render, screen } from '@testing-library/react';
 import { vi, describe, it, expect } from 'vitest';
@@ -8,6 +9,11 @@ import ClipForm from './ClipForm';
 vi.mock('lucide-react', () => ({
     Loader2: () => <div data-testid="loader">Loader</div>,
     ArrowDown: () => <div data-testid="arrow-down">Arrow</div>,
+    ChevronLeft: () => <span>&lt;</span>,
+    ChevronRight: () => <span>&gt;</span>,
+    ChevronsLeft: () => <span>&lt;&lt;</span>,
+    ChevronsRight: () => <span>&gt;&gt;</span>,
+    ArrowRight: () => <span>-&gt;</span>,
 }));
 
 // Mock framer-motion/motion
