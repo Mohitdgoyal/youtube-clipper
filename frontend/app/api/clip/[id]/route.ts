@@ -10,7 +10,11 @@ export async function GET(
   // Preserve query string (e.g. ?download=1)
   const target = backendBase + url.search;
 
-  const backendRes = await fetch(target);
+  const backendRes = await fetch(target, {
+    headers: {
+      "Authorization": `Bearer ${process.env.BACKEND_SECRET}`
+    }
+  });
 
   // If this is the download request (?download=1) we need to pipe the stream & headers
   if (url.searchParams.get("download") === "1") {

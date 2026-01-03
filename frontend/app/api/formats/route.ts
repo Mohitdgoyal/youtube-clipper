@@ -11,8 +11,12 @@ export async function GET(request: Request) {
   const backendUrl = process.env.BACKEND_API_URL || 'http://localhost:3001';
 
   try {
-    const response = await fetch(`${backendUrl}/api/formats?url=${encodeURIComponent(url)}`);
-    
+    const response = await fetch(`${backendUrl}/api/formats?url=${encodeURIComponent(url)}`, {
+      headers: {
+        "Authorization": `Bearer ${process.env.BACKEND_SECRET}`
+      }
+    });
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: 'Failed to fetch formats from backend' }));
       return NextResponse.json(errorData, { status: response.status });
