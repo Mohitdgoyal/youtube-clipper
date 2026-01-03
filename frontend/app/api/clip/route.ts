@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
 
+export async function getUserId() {
+  // SECURITY: Authentication bypassed for personal use. 
+  // Ideally, extract this from the session or JWT.
+  return "personal-user";
+}
+
 export async function POST(req: NextRequest) {
-  const userId = "personal-user";
+  const userId = await getUserId();
 
   const body = await req.json();
 

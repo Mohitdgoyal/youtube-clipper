@@ -55,7 +55,10 @@ export const videoService = {
             "--no-check-certificates",
             "--no-warnings",
             "--add-header", "referer:youtube.com",
-            "--add-header", "user-agent:Mozilla/5.0"
+            "--add-header", "user-agent:Mozilla/5.0",
+            "--concurrent-fragments", "5",
+            "--downloader", "ffmpeg",
+            "--buffer-size", "16K"
         );
 
         if (subtitles) {
@@ -124,10 +127,11 @@ export const videoService = {
                 '-c:a', 'aac',
                 '-b:a', '128k',
                 '-preset', 'ultrafast',
-                '-crf', '28'
+                '-crf', '28',
+                '-threads', '0'
             );
         } else {
-            ffmpegArgs.push('-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k');
+            ffmpegArgs.push('-c:v', 'copy', '-c:a', 'copy', '-threads', '0');
         }
 
         ffmpegArgs.push('-movflags', '+faststart', outputPath);

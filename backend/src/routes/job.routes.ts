@@ -23,11 +23,19 @@ router.post("/clip", async (req, res) => {
         return res.status(400).json({ error: "Invalid timestamps: endTime must be greater than startTime" });
     }
 
+    // Basic URL validation
+    try {
+        new URL(url);
+    } catch (e) {
+        return res.status(400).json({ error: "Invalid URL format" });
+    }
+
     const id = createJobId();
 
     try {
         await dbService.createJob(id, userId);
     } catch (error) {
+        console.error('Job creation error:', error);
         return res.status(500).json({ error: 'Failed to create job' });
     }
 
@@ -48,6 +56,7 @@ router.post("/clip", async (req, res) => {
                 await dbService.updateJob(id, { progress: p });
             };
 
+            await dbService.updateJob(id, { stage: 'downloading' });
             const inputPath = await videoService.downloadAndClip(id, {
                 url,
                 startTime,
@@ -67,6 +76,7 @@ router.post("/clip", async (req, res) => {
                 await fs.promises.rename(adjustedSubPath, subPath);
             }
 
+            await dbService.updateJob(id, { stage: 'processing' });
             await videoService.processWithFFmpeg(inputPath, fastPath, {
                 subtitles,
                 subPath: subtitlesExist ? subPath : undefined,
@@ -81,6 +91,7 @@ router.post("/clip", async (req, res) => {
             const storagePath = `clip-${id}.mp4`;
             const fileStream = fs.createReadStream(fastPath);
 
+            await dbService.updateJob(id, { stage: 'uploading' });
             const publicUrl = await storageService.uploadFile(storagePath, fileStream);
             await fs.promises.unlink(fastPath).catch(() => { });
 
@@ -88,6 +99,7 @@ router.post("/clip", async (req, res) => {
                 storage_path: storagePath,
                 public_url: publicUrl,
                 status: 'ready',
+                stage: 'done',
                 progress: 100
             };
         } catch (err: any) {
@@ -111,6 +123,7 @@ router.get("/clip/:id", async (req, res) => {
 
     return res.json({
         status: job.status,
+        stage: job.stage,
         error: job.error,
         url: job.public_url,
         storagePath: job.storage_path

@@ -21,6 +21,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+    // SECURITY: Authentication bypassed for personal use.
     const userId = "personal-user";
 
     try {

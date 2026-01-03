@@ -18,6 +18,7 @@ interface ClipFormProps {
     setAddSubs: (subs: boolean) => void;
     loading: boolean;
     progress?: number;
+    stage?: string;
     handleSubmit: (e: React.FormEvent) => void;
 
     formats: { format_id: string; label: string }[];
@@ -31,7 +32,7 @@ interface ClipFormProps {
 
 export default function ClipForm({
     url, setUrl, startTime, setStartTime, endTime, setEndTime,
-    addSubs, setAddSubs, loading, progress = 0, handleSubmit,
+    addSubs, setAddSubs, loading, progress = 0, stage = "Processing", handleSubmit,
     formats, selectedFormat, setSelectedFormat,
 
     isBulk, setIsBulk, bulkTimestamps, setBulkTimestamps
@@ -70,13 +71,15 @@ export default function ClipForm({
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: "auto", opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
-                            className="w-full px-2"
+                            className="w-full px-2 py-4 bg-muted/20 rounded-2xl border border-primary/20"
                         >
-                            <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                                <span>Processing...</span>
-                                <span>{progress}%</span>
+                            <div className="flex justify-between items-center mb-3">
+                                <span className="text-sm font-semibold capitalize bg-primary/10 text-primary px-3 py-1 rounded-full animate-pulse">
+                                    {stage}...
+                                </span>
+                                <span className="text-sm font-bold text-primary">{progress}%</span>
                             </div>
-                            <Progress value={progress} className="h-1.5" />
+                            <Progress value={progress} className="h-3 rounded-full" />
                         </motion.div>
                     )}
                 </AnimatePresence>

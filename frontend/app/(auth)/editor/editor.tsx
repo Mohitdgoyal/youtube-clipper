@@ -1,12 +1,12 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { motion } from "motion/react";
 import { toast } from "sonner";
 import VideoPreview from "@/components/editor/VideoPreview";
 import ClipForm from "@/components/editor/ClipForm";
 import DownloadStatus from "@/components/editor/DownloadStatus";
-import History from "@/components/editor/History";
 import { getVideoId } from "@/lib/utils";
 
 export default function Editor() {
@@ -17,7 +17,6 @@ export default function Editor() {
   const [loading, setLoading] = useState(false);
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [metadata, setMetadata] = useState<{ title?: string }>({});
-  const [refreshKey, setRefreshKey] = useState(0);
 
   const [formats, setFormats] = useState<{ format_id: string, label: string }[]>([]);
   const [selectedFormat, setSelectedFormat] = useState<string>('');
@@ -27,6 +26,7 @@ export default function Editor() {
   const sessionUser = { id: "personal-user", name: "Personal User" };
   const [downloadCount, setDownloadCount] = useState(0);
   const [progress, setProgress] = useState(0);
+  const [stage, setStage] = useState("");
 
 
 
@@ -62,6 +62,17 @@ export default function Editor() {
       setIsMetadataLoading(false);
     }
   };
+
+  // useSearchParams to read ?url= from extension
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    // Priority: query param > existing state
+    const paramUrl = searchParams.get("url");
+    if (paramUrl && !url) {
+      setUrl(paramUrl);
+    }
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const videoId = getVideoId(url);
@@ -127,8 +138,20 @@ export default function Editor() {
           }),
         });
 
+        if (!kickoff.ok) {
+          const errorText = await kickoff.text();
+          let errorMsg = "Failed to start processing";
+          try {
+            const errorJson = JSON.parse(errorText);
+            errorMsg = errorJson.error || errorMsg;
+          } catch (e) {
+            // If not JSON, use the raw text or default
+            if (errorText.length > 0) errorMsg = errorText;
+          }
+          throw new Error(errorMsg);
+        }
+
         const kickoffJson = await kickoff.json();
-        if (!kickoff.ok) throw new Error(kickoffJson.error || "Failed to start processing");
         const { id } = kickoffJson;
 
         let status = "processing";
@@ -138,6 +161,7 @@ export default function Editor() {
           const poll = await fetch(`/api/clip/${id}`);
           finalData = await poll.json();
           status = finalData.status;
+          setStage(finalData.stage || "processing");
           setProgress(Number(finalData.status === 'ready' ? 100 : (finalData.progress || 0)));
 
           if (status === "error") throw new Error(finalData.error || "Processing failed");
@@ -158,22 +182,6 @@ export default function Editor() {
 
         await fetch("/api/user/download-count", { method: "POST" });
 
-        // Save clip metadata to library
-        await fetch("/api/clips", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id,
-            url,
-            title: metadata.title || "Untitled Clip",
-            startTime: job.start,
-            endTime: job.end,
-            publicUrl: finalData.url,
-            thumbnail: thumbnailUrl !== "loading" ? thumbnailUrl : null,
-          }),
-        });
-
-        setRefreshKey(prev => prev + 1);
         setDownloadCount(prev => prev + 1);
       }
       toast.success("All bangers clipped successfully!");
@@ -214,9 +222,9 @@ export default function Editor() {
           formats={formats} selectedFormat={selectedFormat} setSelectedFormat={setSelectedFormat}
           isBulk={isBulk} setIsBulk={setIsBulk} bulkTimestamps={bulkTimestamps} setBulkTimestamps={setBulkTimestamps}
           progress={progress}
+          stage={stage}
         />
         <DownloadStatus count={downloadCount} />
-        <History key={refreshKey} />
       </section>
     </main>
   );

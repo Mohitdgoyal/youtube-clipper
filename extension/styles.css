@@ -1,0 +1,33 @@
+#clipper-btn {
+    background-color: #27272a; /* Zinc 800 - dark theme compatible */
+    color: white;
+    border: 1px solid #3f3f46;
+    border-radius: 18px; /* YouTube Play/Pause button style radius */
+    padding: 0 16px;
+    height: 36px;
+    font-size: 14px;
+    font-family: "Roboto", "Arial", sans-serif;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 8px;
+    transition: background-color 0.2s;
+}
+
+#clipper-btn:hover {
+    background-color: #3f3f46; /* Zinc 700 */
+}
+
+/* Light mode adjustment (basic assumption based on YT light mode classes handling, 
+   but since extension CSS is injected, we rely on generic override or we can add .light-theme check if needed) 
+*/
+html[dark="false"] #clipper-btn {
+    background-color: #f2f2f2;
+    color: #0f0f0f;
+    border: 1px solid #e5e5e5;
+}
+html[dark="false"] #clipper-btn:hover {
+    background-color: #e5e5e5;
+}

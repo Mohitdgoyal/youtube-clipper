@@ -37,6 +37,23 @@ export async function GET(
   }
 
   // Otherwise it's a polling request; just forward the JSON status
-  const json = await backendRes.json();
-  return NextResponse.json(json, { status: backendRes.status });
+  if (!backendRes.ok) {
+    const text = await backendRes.text();
+    try {
+      const json = JSON.parse(text);
+      return NextResponse.json(json, { status: backendRes.status });
+    } catch (e) {
+      return NextResponse.json({ error: text || backendRes.statusText }, { status: backendRes.status });
+    }
+  }
+
+  try {
+    const json = await backendRes.json();
+    return NextResponse.json({
+      ...json,
+      stage: json.stage
+    }, { status: backendRes.status });
+  } catch (e) {
+    return NextResponse.json({ error: "Invalid JSON from backend" }, { status: 502 });
+  }
 } 
