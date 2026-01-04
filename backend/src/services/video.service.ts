@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
-import { UPLOADS_DIR } from "../constants";
+import { UPLOADS_DIR, FFMPEG_ENCODER, FFMPEG_PRESET } from "../constants";
 import { timeToSeconds, secondsToTime } from "../utils/time";
 
 export async function adjustSubtitleTimestamps(inputPath: string, outputPath: string, startTime: string): Promise<void> {
@@ -57,7 +57,6 @@ export const videoService = {
             "--add-header", "referer:youtube.com",
             "--add-header", "user-agent:Mozilla/5.0",
             "--concurrent-fragments", "8",
-            "--downloader", "ffmpeg",
             "--buffer-size", "16K",
             "--force-keyframes-at-cuts"
         );
@@ -127,10 +126,10 @@ export const videoService = {
         if (subtitles && subPath && fs.existsSync(subPath)) {
             ffmpegArgs.push(
                 '-vf', `subtitles=${subPath}`,
-                '-c:v', 'libx264',
+                '-c:v', FFMPEG_ENCODER,
                 '-c:a', 'aac',
                 '-b:a', '128k',
-                '-preset', 'ultrafast',
+                '-preset', FFMPEG_PRESET,
                 '-crf', '28',
                 '-threads', '0'
             );

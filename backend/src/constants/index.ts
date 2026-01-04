@@ -20,3 +20,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 
 
 export const BACKEND_SECRET = process.env.BACKEND_SECRET || 'dev-secret';
+
+// FFmpeg Optimizations
+export const FFMPEG_ENCODER = process.env.FFMPEG_ENCODER || 'libx264';
+export const FFMPEG_PRESET = process.env.FFMPEG_PRESET || 'ultrafast';
