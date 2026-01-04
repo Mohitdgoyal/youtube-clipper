@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { parse } from "node-html-parser";
+import { backendFetch } from "@/lib/backend-client";
+import { secondsToTime } from "@/lib/utils";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -10,38 +11,23 @@ export async function GET(request: Request) {
   }
 
   try {
-    const res = await fetch(url);
-    const html = await res.text();
-    const root = parse(html);
+    const response = await backendFetch(`/api/info?url=${encodeURIComponent(url)}`);
 
-    // Duration is stored in the meta tag as ISO 8601 duration format
-    const duration = root
-      .querySelector('meta[itemprop="duration"]')
-      ?.getAttribute("content");
+    if (!response.ok) {
+      return NextResponse.json(
+        { error: "Failed to fetch metadata from backend" },
+        { status: response.status }
+      );
+    }
 
-    // Convert ISO duration (PT1H2M10S) to HH:MM:SS format
-    const formatDuration = (isoDuration: string) => {
-      const matches = isoDuration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-      if (!matches) return null;
+    const data = await response.json();
 
-      const hours = matches[1] ? matches[1].padStart(2, "0") : "00";
-      const minutes = matches[2] ? matches[2].padStart(2, "0") : "00";
-      const seconds = matches[3] ? matches[3].padStart(2, "0") : "00";
-
-      return `${hours}:${minutes}:${seconds}`;
-    };
-
+    // Map backend response to what frontend expects
     const metadata = {
-      title: root
-        .querySelector('meta[property="og:title"]')
-        ?.getAttribute("content"),
-      description: root
-        .querySelector('meta[property="og:description"]')
-        ?.getAttribute("content"),
-      image: root
-        .querySelector('meta[property="og:image"]')
-        ?.getAttribute("content"),
-      duration: duration ? formatDuration(duration) : null,
+      title: data.title,
+      description: "",
+      image: data.thumbnail,
+      duration: data.duration ? secondsToTime(data.duration) : null,
     };
 
     return NextResponse.json(metadata);
