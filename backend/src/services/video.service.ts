@@ -56,10 +56,16 @@ export const videoService = {
             "--no-warnings",
             "--add-header", "referer:youtube.com",
             "--add-header", "user-agent:Mozilla/5.0",
-            "--concurrent-fragments", "8",
-            "--buffer-size", "16K",
+            "--concurrent-fragments", "16", // Increased from 8
+            "--buffer-size", "1M", // Increased from 16K
             "--force-keyframes-at-cuts"
         );
+
+        // Check for aria2c
+        const aria2cPath = path.join(binDir, 'aria2c.exe'); // Windows assumption primarily
+        if (fs.existsSync(aria2cPath)) {
+            ytArgs.push("--downloader", aria2cPath, "--downloader-args", "aria2c:-x 16 -k 1M");
+        }
 
         if (subtitles) {
             ytArgs.push("--write-subs", "--write-auto-subs", "--sub-lang", "en", "--sub-format", "vtt");
@@ -134,6 +140,8 @@ export const videoService = {
                 '-threads', '0'
             );
         } else {
+            // Even without subtitles, we might want to re-encode if the user wants specific formatting,
+            // but copy is fastest. If we ARE just copying, hwaccel doesn't do much, but it's safe.
             ffmpegArgs.push('-c:v', 'copy', '-c:a', 'copy', '-threads', '0');
         }
 

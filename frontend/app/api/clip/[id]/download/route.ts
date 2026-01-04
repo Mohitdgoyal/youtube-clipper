@@ -25,36 +25,23 @@ export async function GET(
       return NextResponse.json({ error: 'Job not ready' }, { status: 409 });
     }
 
-    // Step 2: Download the file from Supabase
-    const downloadRes = await fetch(jobData.url);
-    if (!downloadRes.ok) {
-      return NextResponse.json({ error: 'Failed to download from Supabase' }, { status: 500 });
-    }
-
-    const blob = await downloadRes.blob();
-
-    // Step 3: Clean up the file from Supabase via frontend route
-    try {
-      const cleanupRes = await fetch(`${request.nextUrl.origin}/api/clip/${id}/cleanup`, {
-        method: 'DELETE'
-      });
-
-      if (!cleanupRes.ok) {
-        console.warn(`Failed to clean up job ${id}:`, await cleanupRes.text());
-      } else {
-        console.log(`Successfully cleaned up job ${id}`);
-      }
-    } catch (cleanupErr) {
-      console.error(`Cleanup error for job ${id}:`, cleanupErr);
-    }
-
-    // Step 4: Return the file to the client
-    return new NextResponse(blob, {
+    // Step 2: Get signed URL from backend with custom filename
+    const filename = request.nextUrl.searchParams.get('filename') || 'clip.mp4';
+    const signedUrlRes = await fetch(`${backendUrl}/api/clip/${id}/url?filename=${encodeURIComponent(filename)}`, {
       headers: {
-        'Content-Type': 'video/mp4',
-        'Content-Disposition': 'attachment; filename="clip.mp4"',
-      },
+        "Authorization": `Bearer ${process.env.BACKEND_SECRET || 'dev-secret'}`
+      }
     });
+
+    if (!signedUrlRes.ok) {
+      // Fallback to public URL if signed URL fails
+      return NextResponse.redirect(jobData.url);
+    }
+
+    const { url: signedUrl } = await signedUrlRes.json();
+
+    // Step 3: Redirect directly to the Signed Supabase URL
+    return NextResponse.redirect(signedUrl);
 
   } catch (error) {
     console.error('Download route error:', error);

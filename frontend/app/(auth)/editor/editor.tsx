@@ -167,21 +167,12 @@ export default function Editor() {
           if (status === "error") throw new Error(finalData.error || "Processing failed");
         }
 
-        const downloadRes = await fetch(`/api/clip/${id}/download`);
-        if (!downloadRes.ok) throw new Error("Failed to download clip");
-
-        const blob = await downloadRes.blob();
-        const dUrl = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = dUrl;
-        a.download = `clip_${job.start.replace(/:/g, '-')}.mp4`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(dUrl);
-        a.remove();
+        // Fast download with custom filename
+        const safeTitle = (metadata.title || "clip").replace(/[\\/:"*?<>|]/g, "_");
+        const filename = `${safeTitle} - ${job.start.replace(/:/g, '.')}-${job.end.replace(/:/g, '.')}.mp4`;
+        window.location.href = `/api/clip/${id}/download?filename=${encodeURIComponent(filename)}`;
 
         await fetch("/api/user/download-count", { method: "POST" });
-
         setDownloadCount(prev => prev + 1);
       }
       toast.success("All bangers clipped successfully!");

@@ -67,27 +67,39 @@ router.post("/clip", async (req, res) => {
                 onProgress: updateProgress
             });
             const fastPath = path.join(UPLOADS_DIR, `clip-${id}-fast.mp4`);
-            const subPath = inputPath.replace(/\.mp4$/, ".en.vtt");
-            const subtitlesExist = fs.existsSync(subPath);
 
-            if (subtitles && subtitlesExist) {
-                const adjustedSubPath = path.join(UPLOADS_DIR, `clip-${id}-adjusted.vtt`);
-                await adjustSubtitleTimestamps(subPath, adjustedSubPath, startTime);
-                await fs.promises.rename(adjustedSubPath, subPath);
+            // Optimization: If no subtitles are needed, we can skip the FFmpeg re-processing entirely
+            // yt-dlp has already downloaded the clip in the correct format (mp4) thanks to our args.
+            if (!subtitles) {
+                await dbService.updateJob(id, { stage: 'processing' });
+                // Just rename directly to fastPath
+                await fs.promises.rename(inputPath, fastPath);
+                // Fake a progress update
+                if (updateProgress) updateProgress(100);
+            } else {
+                // Subtitles processing path
+                const subPath = inputPath.replace(/\.mp4$/, ".en.vtt");
+                const subtitlesExist = fs.existsSync(subPath);
+
+                if (subtitlesExist) {
+                    const adjustedSubPath = path.join(UPLOADS_DIR, `clip-${id}-adjusted.vtt`);
+                    await adjustSubtitleTimestamps(subPath, adjustedSubPath, startTime);
+                    await fs.promises.rename(adjustedSubPath, subPath);
+                }
+
+                await dbService.updateJob(id, { stage: 'processing' });
+                await videoService.processWithFFmpeg(inputPath, fastPath, {
+                    subtitles,
+                    subPath: subtitlesExist ? subPath : undefined,
+                    signal: controller.signal,
+                    onProgress: updateProgress,
+                    durationSeconds
+                });
+
+                await fs.promises.unlink(inputPath).catch((err) => {
+                    console.warn(`Failed to cleanup input file ${inputPath}:`, err.message);
+                });
             }
-
-            await dbService.updateJob(id, { stage: 'processing' });
-            await videoService.processWithFFmpeg(inputPath, fastPath, {
-                subtitles,
-                subPath: subtitlesExist ? subPath : undefined,
-                signal: controller.signal,
-                onProgress: updateProgress,
-                durationSeconds
-            });
-
-            await fs.promises.unlink(inputPath).catch((err) => {
-                console.warn(`Failed to cleanup input file ${inputPath}:`, err.message);
-            });
 
             const storagePath = `clip-${id}.mp4`;
             const fileStream = fs.createReadStream(fastPath);
@@ -131,6 +143,28 @@ router.get("/clip/:id", async (req, res) => {
         url: job.public_url,
         storagePath: job.storage_path
     });
+});
+
+router.get("/clip/:id/url", async (req, res) => {
+    const { id } = req.params;
+    const { filename } = req.query;
+
+    if (!filename) {
+        return res.status(400).json({ error: "filename query parameter is required" });
+    }
+
+    const job = await dbService.getJob(id);
+    if (!job || !job.storage_path) {
+        return res.status(404).json({ error: "Job or file not found" });
+    }
+
+    try {
+        const signedUrl = await storageService.getSignedDownloadUrl(job.storage_path, filename as string);
+        return res.json({ url: signedUrl });
+    } catch (error: any) {
+        console.error('Error generating signed URL:', error);
+        return res.status(500).json({ error: error.message });
+    }
 });
 
 router.delete("/clip/:id/cleanup", async (req, res) => {

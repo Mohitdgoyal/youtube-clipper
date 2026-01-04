@@ -36,6 +36,16 @@ export const storageService = {
 
     async listFiles() {
         return await supabase.storage.from(BUCKET_NAME).list();
+    },
+
+    async getSignedDownloadUrl(path: string, filename: string) {
+        const { data, error } = await supabase.storage
+            .from(BUCKET_NAME)
+            .createSignedUrl(path, 60, {
+                download: filename
+            });
+        if (error) throw error;
+        return data.signedUrl;
     }
 };
 
