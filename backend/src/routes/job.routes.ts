@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { dbService, storageService } from "../services/storage.service";
+import { storageService } from "../services/storage.service";
+import { dbService } from "../services/db.service";
 import { videoService, adjustSubtitleTimestamps } from "../services/video.service";
 import { UPLOADS_DIR } from "../constants";
 import path from "path";
@@ -7,6 +8,7 @@ import fs from "fs";
 
 import { createJobId } from "../utils/ids";
 import { timeToSeconds } from "../utils/time";
+import { JobUpdate } from "../types/job";
 
 const router = Router();
 
@@ -41,15 +43,13 @@ router.post("/clip", async (req, res) => {
 
     // Process in background
     (async () => {
-        let finalJobStatus: any = {};
+        let finalJobStatus: JobUpdate = {};
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
             controller.abort();
         }, 10 * 60 * 1000); // 10 minutes
 
         try {
-            const startSec = timeToSeconds(startTime);
-            const endSec = timeToSeconds(endTime);
             const durationSeconds = endSec - startSec;
 
             const updateProgress = async (p: number) => {
@@ -85,15 +85,18 @@ router.post("/clip", async (req, res) => {
                 durationSeconds
             });
 
-            await fs.promises.unlink(inputPath).catch(() => { });
-            await fs.promises.unlink(inputPath).catch(() => { });
+            await fs.promises.unlink(inputPath).catch((err) => {
+                console.warn(`Failed to cleanup input file ${inputPath}:`, err.message);
+            });
 
             const storagePath = `clip-${id}.mp4`;
             const fileStream = fs.createReadStream(fastPath);
 
             await dbService.updateJob(id, { stage: 'uploading' });
             const publicUrl = await storageService.uploadFile(storagePath, fileStream);
-            await fs.promises.unlink(fastPath).catch(() => { });
+            await fs.promises.unlink(fastPath).catch((err) => {
+                console.warn(`Failed to cleanup processed file ${fastPath}:`, err.message);
+            });
 
             finalJobStatus = {
                 storage_path: storagePath,

@@ -144,7 +144,7 @@ export default function Editor() {
           try {
             const errorJson = JSON.parse(errorText);
             errorMsg = errorJson.error || errorMsg;
-          } catch (e) {
+          } catch {
             // If not JSON, use the raw text or default
             if (errorText.length > 0) errorMsg = errorText;
           }

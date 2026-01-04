@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { backendFetch } from '@/lib/backend-client';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -8,14 +9,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'url is required' }, { status: 400 });
   }
 
-  const backendUrl = process.env.BACKEND_API_URL || 'http://localhost:3001';
-
   try {
-    const response = await fetch(`${backendUrl}/api/formats?url=${encodeURIComponent(url)}`, {
-      headers: {
-        "Authorization": `Bearer ${process.env.BACKEND_SECRET || 'dev-secret'}`
-      }
-    });
+    const response = await backendFetch(`/api/formats?url=${encodeURIComponent(url)}`);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: 'Failed to fetch formats from backend' }));
@@ -28,4 +23,4 @@ export async function GET(request: Request) {
     console.error('Error fetching formats from backend:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
-} 
+}

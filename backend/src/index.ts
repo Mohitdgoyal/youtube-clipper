@@ -8,7 +8,7 @@ import { authMiddleware } from "./middleware/auth.middleware";
 import jobRoutes from "./routes/job.routes";
 import formatRoutes from "./routes/format.routes";
 import { errorMiddleware } from "./middleware/error.middleware";
-import { dbService } from "./services/storage.service";
+import { dbService } from "./services/db.service";
 
 const app = express();
 

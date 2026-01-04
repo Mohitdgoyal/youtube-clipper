@@ -7,7 +7,7 @@ import VideoPreview from './VideoPreview';
 
 // Mock dependencies
 vi.mock('react-youtube', () => ({
-    default: ({ onReady, onStateChange }: any) => {
+    default: ({ onReady }: any) => {
         // Simulate ready immediately
         setTimeout(() => {
             onReady({

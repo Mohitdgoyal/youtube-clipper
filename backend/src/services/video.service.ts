@@ -105,7 +105,10 @@ export const videoService = {
                     reject(new Error(`yt-dlp exited with code ${code}: ${stderrData}`));
                 }
             });
-            yt.on('error', reject);
+            yt.on('error', (err) => {
+                console.error('yt-dlp subprocess error:', err);
+                reject(err);
+            });
         });
 
         return outputPath;
@@ -169,7 +172,10 @@ export const videoService = {
                 }
                 code === 0 ? resolve() : reject(new Error(`ffmpeg exited with code ${code}`));
             });
-            ff.on('error', reject);
+            ff.on('error', (err) => {
+                console.error('ffmpeg subprocess error:', err);
+                reject(err);
+            });
         });
     }
 };

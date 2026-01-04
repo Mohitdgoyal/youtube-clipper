@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import db from "@/lib/db";
 import { clips } from "@/lib/schema";
 import { eq, desc } from "drizzle-orm";
+import { getUserIdSync } from "@/lib/auth";
 
 export async function GET() {
-    const userId = "personal-user";
+    const userId = getUserIdSync();
 
     try {
         const userClips = await db
@@ -21,8 +22,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-    // SECURITY: Authentication bypassed for personal use.
-    const userId = "personal-user";
+    const userId = getUserIdSync();
 
     try {
         const body = await req.json();
@@ -50,3 +50,4 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Failed to save clip" }, { status: 500 });
     }
 }
+

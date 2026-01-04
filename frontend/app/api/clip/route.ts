@@ -1,11 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-
-
-export async function getUserId() {
-  // SECURITY: Authentication bypassed for personal use. 
-  // Ideally, extract this from the session or JWT.
-  return "personal-user";
-}
+import { backendFetch } from "@/lib/backend-client";
+import { getUserId } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   const userId = await getUserId();
@@ -19,15 +14,9 @@ export async function POST(req: NextRequest) {
     url: body.url || body.youtubeUrl,
   };
 
-  const backendUrl = process.env.BACKEND_API_URL || 'http://localhost:3001';
-
   // Forward to backend – expect 202 w/ { id }
-  const backendRes = await fetch(`${backendUrl}/api/clip`, {
+  const backendRes = await backendFetch('/api/clip', {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.BACKEND_SECRET || 'dev-secret'}`
-    },
     body: JSON.stringify(backendPayload),
   });
 

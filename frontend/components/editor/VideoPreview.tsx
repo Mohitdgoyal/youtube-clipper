@@ -1,8 +1,8 @@
 import { useRef, useState, useEffect, useCallback, Suspense, lazy } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Button } from "@/components/ui/button";
-import { Timer, Scissors, Play, Pause } from "lucide-react";
-import { getVideoId, timeToSeconds, secondsToTime } from "@/lib/utils";
+import { Timer, Scissors } from "lucide-react";
+import { getVideoId, timeToSeconds } from "@/lib/utils";
 import { TimelineSlider } from "@/components/editor/TimelineSlider";
 import { KeyboardShortcutsInfo } from "@/components/editor/KeyboardShortcutsInfo";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -60,7 +60,7 @@ export default function VideoPreview({
     const playerRef = useRef<any>(null);
     const [duration, setDuration] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
-    const [playerReady, setPlayerReady] = useState(false);
+
 
     // Timer to track current time for finding "current playhead" if needed, 
     // though playerRef.current.getCurrentTime() is better for immediate actions.
@@ -96,7 +96,7 @@ export default function VideoPreview({
 
     const handleTimelineChange = (newStart: string, newEnd: string) => {
         const s = timeToSeconds(newStart);
-        const e = timeToSeconds(newEnd);
+
 
         // If start changed, verify it's valid
         if (newStart !== startTime) {
@@ -192,10 +192,11 @@ export default function VideoPreview({
                                         fs: 0,
                                     },
                                 }}
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 onReady={(event: { target: any }) => {
                                     playerRef.current = event.target;
                                     setDuration(event.target.getDuration());
-                                    setPlayerReady(true);
+
                                 }}
                                 onStateChange={(e: { data: number }) => {
                                     setIsPlaying(e.data === 1); // 1 = playing

@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
+import { getBackendUrl } from "@/lib/backend-client";
+
+const BACKEND_SECRET = process.env.BACKEND_SECRET || 'dev-secret';
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const backendUrl = process.env.BACKEND_API_URL || 'http://localhost:3001';
+  const backendUrl = getBackendUrl();
   const backendBase = `${backendUrl}/api/clip/${id}`;
   const url = new URL(request.url);
   // Preserve query string (e.g. ?download=1)
@@ -13,7 +16,7 @@ export async function GET(
 
   const backendRes = await fetch(target, {
     headers: {
-      "Authorization": `Bearer ${process.env.BACKEND_SECRET || 'dev-secret'}`
+      "Authorization": `Bearer ${BACKEND_SECRET}`
     }
   });
 
@@ -42,7 +45,7 @@ export async function GET(
     try {
       const json = JSON.parse(text);
       return NextResponse.json(json, { status: backendRes.status });
-    } catch (e) {
+    } catch {
       return NextResponse.json({ error: text || backendRes.statusText }, { status: backendRes.status });
     }
   }
@@ -53,7 +56,7 @@ export async function GET(
       ...json,
       stage: json.stage
     }, { status: backendRes.status });
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: "Invalid JSON from backend" }, { status: 502 });
   }
-} 
+}

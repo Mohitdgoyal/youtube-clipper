@@ -1,6 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 
-export const errorMiddleware = (err: any, req: Request, res: Response, next: NextFunction) => {
+interface ApiError extends Error {
+    status?: number;
+}
+
+export const errorMiddleware = (err: ApiError, req: Request, res: Response, next: NextFunction) => {
     console.error(err.stack);
 
     const status = err.status || 500;
@@ -11,3 +15,4 @@ export const errorMiddleware = (err: any, req: Request, res: Response, next: Nex
         stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
     });
 };
+
