@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
-import { UPLOADS_DIR, FFMPEG_ENCODER, FFMPEG_PRESET } from "../constants";
+import { UPLOADS_DIR, FFMPEG_ENCODER, FFMPEG_PRESET, BUFFER_SIZE, ARIA2C_CONNECTIONS, CONCURRENT_FRAGMENTS } from "../constants";
 import { timeToSeconds, secondsToTime } from "../utils/time";
 
 export async function adjustSubtitleTimestamps(inputPath: string, outputPath: string, startTime: string): Promise<void> {
@@ -56,15 +56,15 @@ export const videoService = {
             "--no-warnings",
             "--add-header", "referer:youtube.com",
             "--add-header", "user-agent:Mozilla/5.0",
-            "--concurrent-fragments", "16", // Increased from 8
-            "--buffer-size", "1M", // Increased from 16K
+            "--concurrent-fragments", CONCURRENT_FRAGMENTS,
+            "--buffer-size", BUFFER_SIZE,
             "--force-keyframes-at-cuts"
         );
 
-        // Check for aria2c
+        // Check for aria2c - use configurable connections and buffer
         const aria2cPath = path.join(binDir, 'aria2c.exe'); // Windows assumption primarily
         if (fs.existsSync(aria2cPath)) {
-            ytArgs.push("--downloader", aria2cPath, "--downloader-args", "aria2c:-x 16 -k 1M");
+            ytArgs.push("--downloader", aria2cPath, "--downloader-args", `aria2c:-x ${ARIA2C_CONNECTIONS} -k ${BUFFER_SIZE}`);
         }
 
         if (subtitles) {

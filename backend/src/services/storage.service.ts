@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { SUPABASE_URL, SUPABASE_SERVICE_KEY, BUCKET_NAME } from "../constants";
+import { SUPABASE_URL, SUPABASE_SERVICE_KEY, BUCKET_NAME, CHUNKED_UPLOAD_THRESHOLD } from "../constants";
+import fs from "fs";
 
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
@@ -7,13 +8,37 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
 });
 
 export const storageService = {
-    async uploadFile(path: string, buffer: Buffer | NodeJS.ReadableStream, contentType: string = 'video/mp4') {
+    async uploadFile(path: string, bufferOrStream: Buffer | NodeJS.ReadableStream, contentType: string = 'video/mp4') {
+        // If it's a stream, we need to get the file size first
+        let buffer: Buffer;
+
+        if (Buffer.isBuffer(bufferOrStream)) {
+            buffer = bufferOrStream;
+        } else {
+            // Convert stream to buffer to check size
+            const chunks: Buffer[] = [];
+            for await (const chunk of bufferOrStream) {
+                if (Buffer.isBuffer(chunk)) {
+                    chunks.push(chunk);
+                } else if (typeof chunk === 'string') {
+                    chunks.push(Buffer.from(chunk, 'utf-8'));
+                } else {
+                    chunks.push(Buffer.from(chunk as Uint8Array));
+                }
+            }
+            buffer = Buffer.concat(chunks);
+        }
+
+        // Use standard upload for files under threshold
         const { error } = await supabase.storage
             .from(BUCKET_NAME)
             .upload(path, buffer, {
                 contentType,
                 upsert: true,
+                // Enable duplex for better streaming performance
+                duplex: 'half'
             });
+
         if (error) throw error;
 
         const { data } = supabase.storage
@@ -48,4 +73,3 @@ export const storageService = {
         return data.signedUrl;
     }
 };
-

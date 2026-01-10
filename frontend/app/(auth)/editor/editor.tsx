@@ -8,6 +8,7 @@ import VideoPreview from "@/components/editor/VideoPreview";
 import ClipForm from "@/components/editor/ClipForm";
 import DownloadStatus from "@/components/editor/DownloadStatus";
 import { getVideoId } from "@/lib/utils";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 export default function Editor() {
   const [url, setUrl] = useState("");
@@ -188,10 +189,11 @@ export default function Editor() {
   return (
     <main className="flex flex-col w-full h-full min-h-screen p-4 gap-4 max-w-3xl mx-auto items-center justify-center">
       <nav className="flex flex-col w-full gap-4 fixed top-0 left-0 right-0 z-20">
-        <div className="flex justify-between items-start p-4">
+        <div className="flex justify-between items-center p-4">
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="font-medium rounded-full border py-2 bg-card px-4">
             👋 Welcome back!
           </motion.div>
+          <ThemeToggle />
         </div>
       </nav>
 

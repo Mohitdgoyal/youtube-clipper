@@ -24,3 +24,11 @@ export const BACKEND_SECRET = process.env.BACKEND_SECRET || 'dev-secret';
 // FFmpeg Optimizations
 export const FFMPEG_ENCODER = process.env.FFMPEG_ENCODER || 'libx264';
 export const FFMPEG_PRESET = process.env.FFMPEG_PRESET || 'ultrafast';
+
+// Download Optimizations
+export const BUFFER_SIZE = process.env.BUFFER_SIZE || '4M';
+export const ARIA2C_CONNECTIONS = process.env.ARIA2C_CONNECTIONS || '32';
+export const CONCURRENT_FRAGMENTS = process.env.CONCURRENT_FRAGMENTS || '16';
+
+// Large file upload threshold (50MB) for chunked uploads
+export const CHUNKED_UPLOAD_THRESHOLD = 50 * 1024 * 1024;

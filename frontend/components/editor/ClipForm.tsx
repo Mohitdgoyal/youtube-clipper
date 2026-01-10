@@ -129,7 +129,7 @@ export default function ClipForm({
                                     type="button"
                                     variant="ghost"
                                     size="icon"
-                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground"
+                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground hidden sm:flex"
                                     onClick={() => {
                                         const s = timeToSeconds(startTime);
                                         setStartTime(secondsToTime(Math.max(0, s - 0.05)));
@@ -154,7 +154,7 @@ export default function ClipForm({
                                     type="button"
                                     variant="ghost"
                                     size="icon"
-                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground"
+                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground hidden sm:flex"
                                     onClick={() => {
                                         const s = timeToSeconds(startTime);
                                         setStartTime(secondsToTime(s + 0.05));
@@ -203,7 +203,7 @@ export default function ClipForm({
                                     type="button"
                                     variant="ghost"
                                     size="icon"
-                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground"
+                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground hidden sm:flex"
                                     onClick={() => {
                                         const s = timeToSeconds(endTime);
                                         setEndTime(secondsToTime(Math.max(0, s - 0.05)));
@@ -228,7 +228,7 @@ export default function ClipForm({
                                     type="button"
                                     variant="ghost"
                                     size="icon"
-                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground"
+                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground hidden sm:flex"
                                     onClick={() => {
                                         const s = timeToSeconds(endTime);
                                         setEndTime(secondsToTime(s + 0.05));

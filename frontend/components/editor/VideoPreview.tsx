@@ -228,6 +228,7 @@ export default function VideoPreview({
                                 startTime={startTime}
                                 endTime={endTime}
                                 onValueChange={handleTimelineChange}
+                                videoId={videoId}
                             />
                             <div className="flex justify-between text-xs text-muted-foreground mt-2 font-mono">
                                 <span>{startTime}</span>
