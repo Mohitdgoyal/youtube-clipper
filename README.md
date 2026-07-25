@@ -1,6 +1,6 @@
 # YouTube Clipper
 
-A SaaS tool that allows users to extract specific clips from YouTube videos by providing a URL and start/end timestamps. Clips are processed efficiently and downloaded directly to your computer. Open source for folks who can't afford it and know how code works!
+A personal-use tool to extract clips from YouTube videos by URL and start/end timestamps. Clips are processed locally/on your server and downloaded to your computer.
 
 ---
 
@@ -76,7 +76,7 @@ bun run start
 ```
 
 - The backend will start on `http://localhost:3001` by default.
-- `bun run start` runs the compiled app with Node (`node dist/index.js`). On some Windows setups, `bun run src/index.ts` can crash with `better-sqlite3` (Bun NAPI); use build + start instead.
+- `bun run start` runs `node dist/index.js` (recommended on Windows — Bun can crash on `better-sqlite3` NAPI). Railway uses `bun dist/index.js`.
 
 #### Start the frontend
 
@@ -93,8 +93,8 @@ bun run dev
 
 1. Open the frontend in your browser (`http://localhost:3000`).
 2. Enter a YouTube URL and the desired start/end timestamps (format: `HH:MM:SS`).
-3. Click "Clip Video".
-4. The processed clip will be downloaded directly to your computer as `clip.mp4`.
+3. Click **Clip video**.
+4. The processed clip downloads with a title-based filename.
 
 ---
 
