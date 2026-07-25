@@ -9,13 +9,16 @@
       "cp /tmp/ffmpeg-*-amd64-static/ffmpeg /root/.local/bin/ffmpeg",
       "cp /tmp/ffmpeg-*-amd64-static/ffprobe /root/.local/bin/ffprobe",
       "chmod a+rx /root/.local/bin/ffmpeg /root/.local/bin/ffprobe",
+      "curl -fsSL https://nodejs.org/dist/v20.19.0/node-v20.19.0-linux-x64.tar.xz -o /tmp/node.tar.xz",
+      "mkdir -p /root/.local/node",
+      "tar -xJf /tmp/node.tar.xz -C /root/.local/node --strip-components=1",
       "curl -fsSL https://bun.sh/install | bash",
       "bun install",
       "bun run build"
     ],
     "postinstall": [],
     "env": {
-      "PATH": "/root/.local/bin:/root/.bun/bin:${PATH}",
+      "PATH": "/root/.local/bin:/root/.local/node/bin:/root/.bun/bin:/usr/local/bin:/usr/bin:/bin",
       "YTDLP_PATH": "/root/.local/bin/yt-dlp",
       "FFMPEG_PATH": "/root/.local/bin/ffmpeg",
       "DISABLE_HW_ENCODE": "1",
@@ -24,6 +27,6 @@
     }
   },
   "start": {
-    "cmd": "bun run start"
+    "cmd": "bun dist/index.js"
   }
 }

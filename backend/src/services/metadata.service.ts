@@ -1,12 +1,13 @@
 import { spawn } from "child_process";
-import path from "path";
-import fs from "fs";
 import { YtDlpOutput } from "../types/ytdlp";
 import { metadataCache, createCacheKey } from "./cache.service";
 import { resolveYtDlp } from "../utils/binaries";
+import { buildCommonYtDlpArgs } from "../utils/yt-dlp-args";
 
 /** In-flight fetches keyed by cache key — collapses concurrent cold misses */
 const inflight = new Map<string, Promise<YtDlpOutput>>();
+
+const METADATA_TIMEOUT_MS = Number(process.env.YTDLP_METADATA_TIMEOUT_MS || 45_000);
 
 export const metadataService = {
     async getVideoInfo(url: string): Promise<YtDlpOutput> {
@@ -35,26 +36,27 @@ export const metadataService = {
 
     async fetchInfo(url: string): Promise<YtDlpOutput> {
         const ytDlpPath = resolveYtDlp();
-
-        const ytArgs = [
-            "-j",
-            "--no-playlist",
-            "--no-warnings",
-            "--no-check-certificates",
-            "--add-header", "referer:youtube.com",
-            "--add-header", "user-agent:Mozilla/5.0",
-            url,
-        ];
-
-        const localCookiesPath = path.join(__dirname, "../../cookies.txt");
-        if (fs.existsSync(localCookiesPath)) {
-            ytArgs.push("--cookies", localCookiesPath);
-        }
+        const ytArgs = buildCommonYtDlpArgs(["-j", url]);
 
         return new Promise((resolve, reject) => {
             const yt = spawn(ytDlpPath, ytArgs);
             let jsonData = "";
             let errorData = "";
+            let settled = false;
+
+            const finish = (fn: () => void) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                fn();
+            };
+
+            const timer = setTimeout(() => {
+                yt.kill();
+                finish(() =>
+                    reject(new Error(`yt-dlp metadata timed out after ${METADATA_TIMEOUT_MS}ms`))
+                );
+            }, METADATA_TIMEOUT_MS);
 
             yt.stdout.on("data", (data) => {
                 jsonData += data.toString();
@@ -64,16 +66,20 @@ export const metadataService = {
             });
 
             yt.on("close", (code) => {
-                if (code !== 0) {
-                    return reject(new Error(`yt-dlp exited with code ${code}: ${errorData}`));
-                }
+                finish(() => {
+                    if (code !== 0) {
+                        return reject(new Error(`yt-dlp exited with code ${code}: ${errorData}`));
+                    }
+                    try {
+                        resolve(JSON.parse(jsonData) as YtDlpOutput);
+                    } catch {
+                        reject(new Error("Failed to parse yt-dlp output"));
+                    }
+                });
+            });
 
-                try {
-                    const data = JSON.parse(jsonData) as YtDlpOutput;
-                    resolve(data);
-                } catch {
-                    reject(new Error("Failed to parse yt-dlp output"));
-                }
+            yt.on("error", (err) => {
+                finish(() => reject(err));
             });
         });
     },

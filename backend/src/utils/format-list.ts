@@ -23,11 +23,13 @@ export function buildFormatList(info: YtDlpOutput): FormatInfo[] {
                 f.height &&
                 f.width &&
                 f.width * f.height <= MAX_PIXELS &&
-                (f.ext === "mp4" || f.ext === "webm")
+                // Prefer mp4/H.264 for reliable --download-sections; webm/AV1 more fragile
+                f.ext === "mp4" &&
+                (f.vcodec.includes("avc1") || f.vcodec.includes("h264"))
         )
         .map((f) => ({
             format_id: f.format_id,
-            label: `${f.height}p${f.fps && f.fps > 30 ? f.fps : ""}${f.vcodec.includes("av01") ? " (AV1)" : ""}`,
+            label: `${f.height}p${f.fps && f.fps > 30 ? f.fps : ""}`,
             height: f.height || 0,
             hasAudio: f.acodec !== "none",
         }))
