@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import { YtDlpOutput } from "../types/ytdlp";
 import { metadataCache, createCacheKey } from "./cache.service";
+import { resolveYtDlp } from "../utils/binaries";
 
 export const metadataService = {
     async getVideoInfo(url: string): Promise<YtDlpOutput> {
@@ -21,10 +22,7 @@ export const metadataService = {
     },
 
     async fetchInfo(url: string): Promise<YtDlpOutput> {
-        const binDir = path.resolve(__dirname, '../../bin');
-        const ytDlpPath = fs.existsSync(path.join(binDir, 'yt-dlp.exe'))
-            ? path.join(binDir, 'yt-dlp.exe')
-            : path.join(binDir, 'yt-dlp');
+        const ytDlpPath = resolveYtDlp();
 
         const ytArgs = [
             '-j',

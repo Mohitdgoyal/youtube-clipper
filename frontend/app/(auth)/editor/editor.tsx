@@ -7,11 +7,14 @@ import { toast } from "sonner";
 import VideoPreview from "@/components/editor/VideoPreview";
 import ClipForm from "@/components/editor/ClipForm";
 import DownloadStatus from "@/components/editor/DownloadStatus";
+import PingBackend from "@/components/ping-backend";
 import { getVideoId } from "@/lib/utils";
+import { waitForJob } from "@/lib/job-events";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 export default function Editor() {
-  const [url, setUrl] = useState("");
+  const searchParams = useSearchParams();
+  const [url, setUrl] = useState(() => searchParams.get("url") ?? "");
   const [startTime, setStartTime] = useState("00:00:00");
   const [endTime, setEndTime] = useState("00:00:00");
   const [addSubs, setAddSubs] = useState(false);
@@ -29,63 +32,63 @@ export default function Editor() {
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState("");
 
-
-
-  // const getVideoId = (url: string) => {
-  //   const regExp = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
-  //   const match = url.match(regExp);
-  //   return match && match[7].length === 11 ? match[7] : null;
-  // };
-
-  const fetchVideoMetadata = async (videoId: string) => {
-    setIsMetadataLoading(true);
-    try {
-      const vUrl = `https://www.youtube.com/watch?v=${videoId}`;
-      const [metaRes, formatsRes] = await Promise.all([
-        fetch(`/api/metadata?url=${encodeURIComponent(vUrl)}`),
-        fetch(`/api/formats?url=${encodeURIComponent(vUrl)}`)
-      ]);
-
-      if (metaRes.ok) {
-        const meta = await metaRes.json();
-        setMetadata({ title: meta.title });
-        setThumbnailUrl(meta.image || `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`);
-      }
-      if (formatsRes.ok) {
-        const fData = await formatsRes.json();
-        setFormats(fData.formats || []);
-        if (fData.formats?.length > 0) setSelectedFormat(fData.formats[0].format_id);
-      }
-    } catch (error) {
-      console.error("Error fetching metadata:", error);
-      setThumbnailUrl(`https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`);
-    } finally {
-      setIsMetadataLoading(false);
-    }
-  };
-
-  // useSearchParams to read ?url= from extension
-  const searchParams = useSearchParams();
-
-  useEffect(() => {
-    // Priority: query param > existing state
-    const paramUrl = searchParams.get("url");
-    if (paramUrl && !url) {
-      setUrl(paramUrl);
-    }
-  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  // Debounced metadata/formats fetch (400ms) with abort on URL change
   useEffect(() => {
     const videoId = getVideoId(url);
-    if (videoId) {
-      setThumbnailUrl(null);
-      fetchVideoMetadata(videoId);
-    } else {
-      setThumbnailUrl(null);
-      setMetadata({});
-      setFormats([]);
-      setSelectedFormat('');
+    if (!videoId) {
+      const reset = () => {
+        setThumbnailUrl(null);
+        setMetadata({});
+        setFormats([]);
+        setSelectedFormat('');
+        setIsMetadataLoading(false);
+      };
+      // Defer reset so it isn't a synchronous setState inside the effect body
+      const id = setTimeout(reset, 0);
+      return () => clearTimeout(id);
     }
+
+    const controller = new AbortController();
+    const startLoad = () => {
+      setThumbnailUrl(null);
+      setIsMetadataLoading(true);
+    };
+    const startId = setTimeout(startLoad, 0);
+
+    const timer = setTimeout(async () => {
+      try {
+        const vUrl = `https://www.youtube.com/watch?v=${videoId}`;
+        const [metaRes, formatsRes] = await Promise.all([
+          fetch(`/api/metadata?url=${encodeURIComponent(vUrl)}`, { signal: controller.signal }),
+          fetch(`/api/formats?url=${encodeURIComponent(vUrl)}`, { signal: controller.signal }),
+        ]);
+
+        if (controller.signal.aborted) return;
+
+        if (metaRes.ok) {
+          const meta = await metaRes.json();
+          setMetadata({ title: meta.title });
+          setThumbnailUrl(meta.image || `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`);
+        }
+        if (formatsRes.ok) {
+          const fData = await formatsRes.json();
+          setFormats(fData.formats || []);
+          if (fData.formats?.length > 0) setSelectedFormat(fData.formats[0].format_id);
+        }
+      } catch (error) {
+        if ((error as Error).name === "AbortError") return;
+        console.error("Error fetching metadata:", error);
+        setThumbnailUrl(`https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`);
+      } finally {
+        if (!controller.signal.aborted) setIsMetadataLoading(false);
+      }
+    }, 400);
+
+    return () => {
+      clearTimeout(startId);
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [url]);
 
   useEffect(() => {
@@ -132,7 +135,6 @@ export default function Editor() {
             url,
             startTime: job.start,
             endTime: job.end,
-
             subtitles: addSubs,
             formatId: selectedFormat,
             userId: sessionUser.id
@@ -146,7 +148,6 @@ export default function Editor() {
             const errorJson = JSON.parse(errorText);
             errorMsg = errorJson.error || errorMsg;
           } catch {
-            // If not JSON, use the raw text or default
             if (errorText.length > 0) errorMsg = errorText;
           }
           throw new Error(errorMsg);
@@ -155,26 +156,30 @@ export default function Editor() {
         const kickoffJson = await kickoff.json();
         const { id } = kickoffJson;
 
-        let status = "processing";
-        let finalData = null;
-        while (status === "processing") {
-          await new Promise((r) => setTimeout(r, 1000));
-          const poll = await fetch(`/api/clip/${id}`);
-          finalData = await poll.json();
-          status = finalData.status;
-          setStage(finalData.stage || "processing");
-          setProgress(Number(finalData.status === 'ready' ? 100 : (finalData.progress || 0)));
+        await waitForJob(id, (data) => {
+          setStage(data.stage || "processing");
+          setProgress(Number(data.status === "ready" ? 100 : (data.progress || 0)));
+        });
 
-          if (status === "error") throw new Error(finalData.error || "Processing failed");
-        }
-
-        // Fast download with custom filename
+        // Trigger download without navigating away (keeps bulk loop alive)
         const safeTitle = (metadata.title || "clip").replace(/[\\/:"*?<>|]/g, "_");
         const filename = `${safeTitle} - ${job.start.replace(/:/g, '.')}-${job.end.replace(/:/g, '.')}.mp4`;
-        window.location.href = `/api/clip/${id}/download?filename=${encodeURIComponent(filename)}`;
+        const downloadUrl = `/api/clip/${id}/download?filename=${encodeURIComponent(filename)}`;
+        const anchor = document.createElement("a");
+        anchor.href = downloadUrl;
+        anchor.download = filename;
+        anchor.rel = "noopener";
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
 
         await fetch("/api/user/download-count", { method: "POST" });
         setDownloadCount(prev => prev + 1);
+        // File cleanup is scheduled server-side after signed URL TTL (avoids racing slow downloads)
+
+        if (jobsToProcess.length > 1) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
       }
       toast.success("All bangers clipped successfully!");
     } catch (err: unknown) {
@@ -188,6 +193,7 @@ export default function Editor() {
 
   return (
     <main className="flex flex-col w-full h-full min-h-screen p-4 gap-4 max-w-3xl mx-auto items-center justify-center">
+      <PingBackend active={loading} />
       <nav className="flex flex-col w-full gap-4 fixed top-0 left-0 right-0 z-20">
         <div className="flex justify-between items-center p-4">
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="font-medium rounded-full border py-2 bg-card px-4">
@@ -203,6 +209,8 @@ export default function Editor() {
           thumbnailUrl={thumbnailUrl}
           title={metadata.title}
           url={url}
+          startTime={startTime}
+          endTime={endTime}
           onSetStartTime={setStartTime}
           onSetEndTime={setEndTime}
         />

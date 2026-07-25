@@ -1,8 +1,11 @@
 import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
-import { UPLOADS_DIR, FFMPEG_ENCODER, FFMPEG_PRESET, BUFFER_SIZE, ARIA2C_CONNECTIONS, CONCURRENT_FRAGMENTS } from "../constants";
+import { UPLOADS_DIR, BUFFER_SIZE, ARIA2C_CONNECTIONS, CONCURRENT_FRAGMENTS } from "../constants";
 import { timeToSeconds, secondsToTime } from "../utils/time";
+import { resolveYtDlp, resolveFfmpeg, resolveAria2c } from "../utils/binaries";
+import { getVideoEncoder } from "../utils/ffmpeg-encoder";
+import { needsForcedKeyframes } from "../utils/time-precision";
 
 export async function adjustSubtitleTimestamps(inputPath: string, outputPath: string, startTime: string): Promise<void> {
     const startSeconds = timeToSeconds(startTime);
@@ -35,16 +38,14 @@ export const videoService = {
     }) {
         const outputPath = path.join(UPLOADS_DIR, `clip-${id}.mp4`);
         const { url, startTime, endTime, subtitles, formatId, signal, onProgress } = options;
-        const binDir = path.resolve(__dirname, '../../bin');
-        const ytDlpPath = fs.existsSync(path.join(binDir, 'yt-dlp.exe'))
-            ? path.join(binDir, 'yt-dlp.exe')
-            : path.join(binDir, 'yt-dlp');
+        const ytDlpPath = resolveYtDlp();
         const ytArgs = [url];
         const section = `*${startTime}-${endTime}`;
 
         if (formatId) {
             ytArgs.push("-f", formatId);
         } else {
+            // Default: H.264/AAC mp4 for broad compatibility / transmux friendliness
             ytArgs.push("-f", "bv[ext=mp4][vcodec^=avc1][height<=?1080][fps<=?60]+ba[ext=m4a]/best[ext=mp4][vcodec^=avc1][height<=?1080]");
         }
 
@@ -58,12 +59,14 @@ export const videoService = {
             "--add-header", "user-agent:Mozilla/5.0",
             "--concurrent-fragments", CONCURRENT_FRAGMENTS,
             "--buffer-size", BUFFER_SIZE,
-            "--force-keyframes-at-cuts"
         );
 
-        // Check for aria2c - use configurable connections and buffer
-        const aria2cPath = path.join(binDir, 'aria2c.exe'); // Windows assumption primarily
-        if (fs.existsSync(aria2cPath)) {
+        if (needsForcedKeyframes(startTime, endTime, subtitles)) {
+            ytArgs.push("--force-keyframes-at-cuts");
+        }
+
+        const aria2cPath = resolveAria2c();
+        if (aria2cPath) {
             ytArgs.push("--downloader", aria2cPath, "--downloader-args", `aria2c:-x ${ARIA2C_CONNECTIONS} -k ${BUFFER_SIZE}`);
         }
 
@@ -127,27 +130,32 @@ export const videoService = {
         durationSeconds?: number
     }) {
         const { subtitles, subPath, signal, onProgress, durationSeconds } = options;
+        const ffmpegPath = resolveFfmpeg();
         const ffmpegArgs = ['-y', '-hwaccel', 'auto', '-i', inputPath];
 
         if (subtitles && subPath && fs.existsSync(subPath)) {
+            // Escape path for FFmpeg subtitles filter (Windows backslashes / colons)
+            const escapedSub = subPath
+                .replace(/\\/g, '/')
+                .replace(/:/g, '\\:')
+                .replace(/'/g, "\\'");
+            const { encoder, videoArgs } = getVideoEncoder();
+
             ffmpegArgs.push(
-                '-vf', `subtitles=${subPath}`,
-                '-c:v', FFMPEG_ENCODER,
+                '-vf', `subtitles='${escapedSub}'`,
+                '-c:v', encoder,
+                ...videoArgs,
                 '-c:a', 'aac',
                 '-b:a', '128k',
-                '-preset', FFMPEG_PRESET,
-                '-crf', '28',
-                '-threads', '0'
             );
         } else {
-            // Even without subtitles, we might want to re-encode if the user wants specific formatting,
-            // but copy is fastest. If we ARE just copying, hwaccel doesn't do much, but it's safe.
+            // Stream copy is fastest when no burn-in is needed
             ffmpegArgs.push('-c:v', 'copy', '-c:a', 'copy', '-threads', '0');
         }
 
         ffmpegArgs.push('-movflags', '+faststart', outputPath);
 
-        const ff = spawn('ffmpeg', ffmpegArgs);
+        const ff = spawn(ffmpegPath, ffmpegArgs);
 
         if (onProgress) onProgress(50); // Start processing phase
 

@@ -18,8 +18,7 @@ A SaaS tool that allows users to extract specific clips from YouTube videos by p
 You must have the following installed on your system:
 
 - **[Bun](https://bun.sh/):** `bun` (v1.2.7 or later)
-- **[Node.js](https://nodejs.org/):** `node` (v18+ recommended)
-- **[npm](https://www.npmjs.com/):** (for some tooling, v10+)
+- **[Node.js](https://nodejs.org/):** `node` **≥ 20.19** (required for Next 16 / ESLint 10)
 - **[yt-dlp](https://github.com/yt-dlp/yt-dlp):** Command-line tool for downloading YouTube videos
 - **[ffmpeg](https://ffmpeg.org/):** Command-line tool for video processing
 
@@ -72,10 +71,12 @@ bun install
 
 ```sh
 cd backend
-bun run src/index.ts
+bun run build
+bun run start
 ```
 
 - The backend will start on `http://localhost:3001` by default.
+- `bun run start` runs the compiled app with Node (`node dist/index.js`). On some Windows setups, `bun run src/index.ts` can crash with `better-sqlite3` (Bun NAPI); use build + start instead.
 
 #### Start the frontend
 
@@ -139,9 +140,41 @@ youtube-clipper/
 
 ## Development
 
-- TypeScript is used throughout.
-- Hot reload is NOT enabled.
-- Linting is available via `bun run lint` in the frontend.
+### Stack (current majors)
+
+- Frontend: Next.js 16, React 19.2, Lucide 1, ESLint 10 (`eslint-config-next` 16)
+- Backend: Express 5.2, TypeScript 7, dotenv 17
+- Package manager: **bun** (`bun.lock` — do not reintroduce `package-lock.json`)
+
+### TypeScript 6 + 7 (frontend)
+
+TypeScript 7 ships a native `tsc` but **not** the classic Compiler API yet. Next.js and `typescript-eslint` still need that API, so the frontend uses a side-by-side setup:
+
+| Package | Role |
+|---------|------|
+| `@typescript/native` (`typescript@^7`) | Native **TS 7** `tsc` — used by `bun run typecheck` |
+| `typescript` (`^6`) | Classic API for **Next.js** typechecking during `next build` and for **ESLint** |
+
+Backend uses `typescript@^7` only (`bun run typecheck` / `bun run build`).
+
+When Next / typescript-eslint support the TS 7 API, the frontend `typescript@6` pin can be removed.
+
+### Scripts
+
+```sh
+# Frontend
+cd frontend
+bun run lint
+bun run typecheck   # TS 7 via @typescript/native
+bun run build
+bun run smoke:clip  # create → poll → download against running servers
+
+# Backend
+cd backend
+bun run typecheck
+bun run build
+bun run start
+```
 
 ---
 

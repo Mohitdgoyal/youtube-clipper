@@ -1,13 +1,73 @@
+import fs from "fs";
+import path from "path";
 import { app } from "./app";
-import { PORT } from "./constants";
+import { PORT, UPLOADS_DIR } from "./constants";
 import { dbService } from "./services/db.service";
+import { storageService } from "./services/storage.service";
+
+/** Format for SQLite CURRENT_TIMESTAMP comparisons: `YYYY-MM-DD HH:MM:SS` */
+function toSqliteDatetime(date: Date): string {
+  return date.toISOString().slice(0, 19).replace("T", " ");
+}
+
+async function cleanupOldJobsAndFiles() {
+  const cutoff = toSqliteDatetime(new Date(Date.now() - 24 * 60 * 60 * 1000));
+  const removed = await dbService.cleanupOldJobs(cutoff);
+  for (const job of removed) {
+    if (job.storage_path) {
+      await storageService.deleteFile(job.storage_path).catch((err) => {
+        console.warn(`Failed to delete orphan file ${job.storage_path}:`, err.message);
+      });
+    }
+  }
+  if (removed.length > 0) {
+    console.log(`Cleaned up ${removed.length} old job(s)`);
+  }
+}
+
+/** Remove stale temp sidecars (vtt / -fast) older than 24h */
+async function cleanupTempUploads() {
+  if (!fs.existsSync(UPLOADS_DIR)) return;
+  const cutoffMs = Date.now() - 24 * 60 * 60 * 1000;
+  const files = await fs.promises.readdir(UPLOADS_DIR);
+  let removed = 0;
+
+  for (const name of files) {
+    const isTemp =
+      name.endsWith(".vtt") ||
+      name.includes("-fast.mp4") ||
+      name.includes("-adjusted.vtt");
+    if (!isTemp) continue;
+
+    const full = path.join(UPLOADS_DIR, name);
+    try {
+      const stat = await fs.promises.stat(full);
+      if (stat.mtimeMs < cutoffMs) {
+        await fs.promises.unlink(full);
+        removed++;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (removed > 0) {
+    console.log(`Cleaned up ${removed} temp upload file(s)`);
+  }
+}
 
 async function cleanupTask() {
-  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  await dbService.cleanupOldJobs(twentyFourHoursAgo);
+  try {
+    await cleanupOldJobsAndFiles();
+    await cleanupTempUploads();
+  } catch (err) {
+    console.error("Cleanup failed:", err);
+  }
 }
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   cleanupTask();
+  // Periodic cleanup (hourly)
+  setInterval(cleanupTask, 60 * 60 * 1000).unref?.();
 });

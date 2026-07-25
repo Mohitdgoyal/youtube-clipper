@@ -2,14 +2,11 @@ import path from "path";
 import fs from "fs";
 
 export const PORT = process.env.PORT || 3001;
+export const NODE_ENV = process.env.NODE_ENV || "development";
 
-export const SUPABASE_URL = process.env.SUPABASE_URL as string;
-export const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY as string;
-export const BUCKET_NAME = process.env.SUPABASE_BUCKET || 'videos';
-
-export const ALLOWED_ORIGIN = process.env.NODE_ENV === "production"
-    ? "https://clippa.in"
-    : "http://localhost:3000";
+export const ALLOWED_ORIGIN = NODE_ENV === "production"
+    ? (process.env.ALLOWED_ORIGIN || "https://clippa.in")
+    : (process.env.ALLOWED_ORIGIN || "http://localhost:3000");
 
 export const UPLOADS_DIR = path.join(__dirname, "../../uploads");
 
@@ -18,17 +15,27 @@ if (!fs.existsSync(UPLOADS_DIR)) {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
+const rawSecret = process.env.BACKEND_SECRET;
+if (NODE_ENV === "production") {
+    if (!rawSecret || rawSecret === "dev-secret") {
+        throw new Error(
+            "BACKEND_SECRET must be set to a strong value in production (not 'dev-secret')."
+        );
+    }
+}
 
-export const BACKEND_SECRET = process.env.BACKEND_SECRET || 'dev-secret';
+export const BACKEND_SECRET = rawSecret || "dev-secret";
 
-// FFmpeg Optimizations
-export const FFMPEG_ENCODER = process.env.FFMPEG_ENCODER || 'libx264';
-export const FFMPEG_PRESET = process.env.FFMPEG_PRESET || 'ultrafast';
+// FFmpeg — encoder auto-detected at runtime unless FFMPEG_ENCODER is set
+export const FFMPEG_PRESET = process.env.FFMPEG_PRESET || "ultrafast";
 
 // Download Optimizations
-export const BUFFER_SIZE = process.env.BUFFER_SIZE || '4M';
-export const ARIA2C_CONNECTIONS = process.env.ARIA2C_CONNECTIONS || '32';
-export const CONCURRENT_FRAGMENTS = process.env.CONCURRENT_FRAGMENTS || '16';
+export const BUFFER_SIZE = process.env.BUFFER_SIZE || "4M";
+export const ARIA2C_CONNECTIONS = process.env.ARIA2C_CONNECTIONS || "32";
+export const CONCURRENT_FRAGMENTS = process.env.CONCURRENT_FRAGMENTS || "16";
 
-// Large file upload threshold (50MB) for chunked uploads
-export const CHUNKED_UPLOAD_THRESHOLD = 50 * 1024 * 1024;
+// Clip job concurrency (Phase 2 queue)
+export const CLIP_JOB_CONCURRENCY = Number(process.env.CLIP_JOB_CONCURRENCY || 2);
+
+// Signed download URL lifetime
+export const DOWNLOAD_URL_TTL_SECONDS = Number(process.env.DOWNLOAD_URL_TTL_SECONDS || 3600);

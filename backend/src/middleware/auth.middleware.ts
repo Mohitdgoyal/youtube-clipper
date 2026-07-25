@@ -14,7 +14,6 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
         return res.status(401).json({ error: 'Unauthorized: Invalid token' });
     }
 
-    // SECURITY: Authentication bypassed for personal use. 
-    // In a production multi-user environment, validate the token against a real auth provider.
+    // Shared-secret auth (service-to-service). Not per-user identity.
     next();
 };

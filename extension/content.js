@@ -1,40 +1,74 @@
+/**
+ * App origin resolution:
+ * 1) localStorage.clipperAppBase (set on youtube.com console if needed)
+ * 2) http://localhost:3000 in development (default for unpacked extension)
+ * 3) https://clippa.in otherwise
+ *
+ * Override examples:
+ *   localStorage.setItem('clipperAppBase', 'http://localhost:3000')
+ *   localStorage.setItem('clipperAppBase', 'https://clippa.in')
+ */
+function getAppBase() {
+    try {
+        const stored = localStorage.getItem('clipperAppBase');
+        if (stored && /^https?:\/\//i.test(stored)) {
+            return stored.replace(/\/$/, '');
+        }
+    } catch (_) {
+        /* ignore */
+    }
+
+    // Unpacked / Chrome "development" install → local app
+    try {
+        if (typeof chrome !== 'undefined' && chrome.runtime?.getManifest) {
+            // Heuristic: no update_url means unpacked (local) extension
+            const manifest = chrome.runtime.getManifest();
+            if (!manifest.update_url) {
+                return 'http://localhost:3000';
+            }
+        }
+    } catch (_) {
+        /* ignore */
+    }
+
+    return 'https://clippa.in';
+}
+
 function addClipButton() {
     if (document.getElementById('clipper-btn')) return;
 
-    // Target the specific top-level buttons row next to Subscribe/Join/Share
-    // Selector can be brittle on YT updates. 
-    // #top-level-buttons-computed is often reliable for the row of buttons
     const targetRow = document.querySelector('#top-level-buttons-computed') ||
         document.querySelector('ytd-menu-renderer #top-level-buttons-computed');
 
-    if (targetRow) {
-        const btn = document.createElement('button');
-        btn.id = 'clipper-btn';
-        btn.innerText = '✂️ Clip';
-        btn.onclick = () => {
-            const videoUrl = window.location.href;
-            const targetUrl = `http://localhost:3000?url=${encodeURIComponent(videoUrl)}`;
-            window.open(targetUrl, '_blank');
-        };
+    if (!targetRow) return;
 
-        // Insert as the first item for visibility (or appendChild to put at end)
-        // targetRow.appendChild(btn); // puts it after 'Clip' or 'Save' usually
-        targetRow.insertBefore(btn, targetRow.firstChild);
-    }
+    const btn = document.createElement('button');
+    btn.id = 'clipper-btn';
+    btn.innerText = '✂️ Clip';
+    btn.onclick = () => {
+        const videoUrl = window.location.href;
+        const targetUrl = `${getAppBase()}?url=${encodeURIComponent(videoUrl)}`;
+        window.open(targetUrl, '_blank');
+    };
+
+    targetRow.insertBefore(btn, targetRow.firstChild);
 }
 
-// Initial run
 addClipButton();
 
-// Observer for navigation (SPA)
-const observer = new MutationObserver((mutations) => {
-    addClipButton();
+// Throttle MutationObserver — YouTube mutates the DOM constantly
+let scheduled = false;
+const observer = new MutationObserver(() => {
+    if (scheduled) return;
+    scheduled = true;
+    setTimeout(() => {
+        scheduled = false;
+        addClipButton();
+    }, 500);
 });
 
-// Watch for body changes (e.g. initial load of dynamic content)
 observer.observe(document.body, { childList: true, subtree: true });
 
-// YouTube specific event for navigation finish
 window.addEventListener('yt-navigate-finish', () => {
     addClipButton();
 });

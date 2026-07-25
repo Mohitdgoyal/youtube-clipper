@@ -1,3 +1,6 @@
-export function createJobId() {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+import { randomBytes } from "crypto";
+
+/** Cryptographically strong job id (unpredictable for public URL guessing). */
+export function createJobId(): string {
+    return randomBytes(16).toString("hex");
 }

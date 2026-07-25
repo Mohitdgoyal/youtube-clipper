@@ -31,7 +31,7 @@ const fadeVariants = {
 
 const transitionConfig = {
     duration: 0.2,
-    ease: "easeOut"
+    ease: "easeOut" as const
 };
 
 // Loading skeleton for YouTube player

@@ -3,7 +3,7 @@
  */
 
 export type JobStatus = 'processing' | 'ready' | 'error';
-export type JobStage = 'downloading' | 'processing' | 'uploading' | 'done';
+export type JobStage = 'queued' | 'downloading' | 'processing' | 'uploading' | 'done';
 
 /**
  * Data structure for updating a job in the database.

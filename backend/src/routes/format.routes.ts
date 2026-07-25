@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { metadataService } from "../services/metadata.service";
+import { isAllowedYouTubeUrl } from "../utils/youtube-url";
+import { rateLimit } from "../middleware/rate-limit.middleware";
 
 const router = Router();
 
@@ -8,10 +10,16 @@ interface FormatInfo {
     label: string;
 }
 
-router.get("/formats", async (req, res) => {
+const metaRateLimit = rateLimit({ windowMs: 60_000, max: 30, name: "meta" });
+
+router.get("/formats", metaRateLimit, async (req, res) => {
     const { url } = req.query;
     if (!url || typeof url !== 'string') {
         return res.status(400).json({ error: "url is required" });
+    }
+
+    if (!isAllowedYouTubeUrl(url)) {
+        return res.status(400).json({ error: "Only YouTube URLs are allowed" });
     }
 
     try {
@@ -60,10 +68,14 @@ router.get("/formats", async (req, res) => {
     }
 });
 
-router.get("/info", async (req, res) => {
+router.get("/info", metaRateLimit, async (req, res) => {
     const { url } = req.query;
     if (!url || typeof url !== 'string') {
         return res.status(400).json({ error: "url is required" });
+    }
+
+    if (!isAllowedYouTubeUrl(url)) {
+        return res.status(400).json({ error: "Only YouTube URLs are allowed" });
     }
 
     try {
@@ -72,7 +84,7 @@ router.get("/info", async (req, res) => {
         return res.json({
             title: info.title,
             thumbnail: info.thumbnail,
-            duration: info.duration, // Check if duration is in seconds or string? yt-dlp usually gives seconds (number)
+            duration: info.duration,
             webpage_url: info.webpage_url
         });
     } catch (err: any) {
@@ -82,5 +94,3 @@ router.get("/info", async (req, res) => {
 });
 
 export default router;
-
-

@@ -1,75 +1,76 @@
-import { createClient } from "@supabase/supabase-js";
-import { SUPABASE_URL, SUPABASE_SERVICE_KEY, BUCKET_NAME, CHUNKED_UPLOAD_THRESHOLD } from "../constants";
 import fs from "fs";
+import path from "path";
+import { UPLOADS_DIR, DOWNLOAD_URL_TTL_SECONDS } from "../constants";
+import { buildSignedUploadUrl } from "../utils/signed-url";
 
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-    auth: { persistSession: false }
-});
+// The server's base URL should be loaded from env or default to localhost
+const BASE_URL = process.env.BACKEND_API_URL || "http://localhost:3001";
 
 export const storageService = {
-    async uploadFile(path: string, bufferOrStream: Buffer | NodeJS.ReadableStream, contentType: string = 'video/mp4') {
-        // If it's a stream, we need to get the file size first
-        let buffer: Buffer;
+    /** Unsigned canonical URL (stored in DB; not for direct unauthenticated access). */
+    getPublicUrl(filename: string) {
+        return `${BASE_URL}/uploads/${filename}`;
+    },
+
+    /** Rename a temp file already on disk to its final name (no re-copy). */
+    async finalizeLocalFile(tempFilename: string, finalFilename: string) {
+        const tempPath = path.join(UPLOADS_DIR, tempFilename);
+        const finalPath = path.join(UPLOADS_DIR, finalFilename);
+        if (tempPath !== finalPath) {
+            await fs.promises.rename(tempPath, finalPath);
+        }
+        return this.getPublicUrl(finalFilename);
+    },
+
+    async uploadFile(filename: string, bufferOrStream: Buffer | NodeJS.ReadableStream) {
+        const filePath = path.join(UPLOADS_DIR, filename);
 
         if (Buffer.isBuffer(bufferOrStream)) {
-            buffer = bufferOrStream;
+            await fs.promises.writeFile(filePath, bufferOrStream);
         } else {
-            // Convert stream to buffer to check size
-            const chunks: Buffer[] = [];
-            for await (const chunk of bufferOrStream) {
-                if (Buffer.isBuffer(chunk)) {
-                    chunks.push(chunk);
-                } else if (typeof chunk === 'string') {
-                    chunks.push(Buffer.from(chunk, 'utf-8'));
-                } else {
-                    chunks.push(Buffer.from(chunk as Uint8Array));
-                }
-            }
-            buffer = Buffer.concat(chunks);
+            const writeStream = fs.createWriteStream(filePath);
+            bufferOrStream.pipe(writeStream);
+            await new Promise<void>((resolve, reject) => {
+                writeStream.on("finish", () => resolve());
+                writeStream.on("error", reject);
+            });
         }
 
-        // Use standard upload for files under threshold
-        const { error } = await supabase.storage
-            .from(BUCKET_NAME)
-            .upload(path, buffer, {
-                contentType,
-                upsert: true,
-                // Enable duplex for better streaming performance
-                duplex: 'half'
-            });
-
-        if (error) throw error;
-
-        const { data } = supabase.storage
-            .from(BUCKET_NAME)
-            .getPublicUrl(path);
-
-        return data.publicUrl;
+        return this.getPublicUrl(filename);
     },
 
-    async deleteFile(path: string) {
-        const { error } = await supabase.storage
-            .from(BUCKET_NAME)
-            .remove([path]);
-        if (error) throw error;
-    },
-
-    async listBuckets() {
-        return await supabase.storage.listBuckets();
+    async deleteFile(filename: string) {
+        const filePath = path.join(UPLOADS_DIR, filename);
+        if (fs.existsSync(filePath)) {
+            await fs.promises.unlink(filePath);
+        }
     },
 
     async listFiles() {
-        return await supabase.storage.from(BUCKET_NAME).list();
+        if (!fs.existsSync(UPLOADS_DIR)) return [];
+        const files = await fs.promises.readdir(UPLOADS_DIR);
+        return files.map((f) => ({ name: f }));
     },
 
-    async getSignedDownloadUrl(path: string, filename: string) {
-        const { data, error } = await supabase.storage
-            .from(BUCKET_NAME)
-            .createSignedUrl(path, 60, {
-                download: filename
+    /** Time-limited HMAC-signed download URL. */
+    async getSignedDownloadUrl(filename: string, downloadName: string) {
+        return buildSignedUploadUrl(BASE_URL, filename, {
+            downloadName,
+            ttlSeconds: DOWNLOAD_URL_TTL_SECONDS,
+        });
+    },
+
+    /** Sign an existing public/unsigned upload URL for client download. */
+    signPublicUrl(publicUrl: string, downloadName?: string): string {
+        try {
+            const parsed = new URL(publicUrl);
+            const filename = path.basename(parsed.pathname);
+            return buildSignedUploadUrl(BASE_URL, filename, {
+                downloadName,
+                ttlSeconds: DOWNLOAD_URL_TTL_SECONDS,
             });
-        if (error) throw error;
-        return data.signedUrl;
-    }
+        } catch {
+            return publicUrl;
+        }
+    },
 };
