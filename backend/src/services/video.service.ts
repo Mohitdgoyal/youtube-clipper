@@ -10,6 +10,7 @@ import {
     buildClipYtDlpArgs,
     useAria2cDownloader,
     SAFE_SECTION_FORMAT,
+    FALLBACK_SECTION_FORMAT,
     isYoutubeForbiddenError,
 } from "../utils/yt-dlp-args";
 
@@ -272,13 +273,11 @@ export const videoService = {
             return ytArgs;
         };
 
-        const allowUserFormat =
-            process.env.ALLOW_USER_FORMAT === "1" ||
-            process.env.ALLOW_USER_FORMAT === "true";
-        const primaryFormat =
-            allowUserFormat && formatId?.trim()
-                ? formatId.trim()
-                : SAFE_SECTION_FORMAT;
+        // Honor picker: empty = Best available (1080p60 H.264). Retry down on 403/stall.
+        const primaryFormat = formatId?.trim() || SAFE_SECTION_FORMAT;
+        const retryFormats = [SAFE_SECTION_FORMAT, FALLBACK_SECTION_FORMAT].filter(
+            (f, i, arr) => f !== primaryFormat && arr.indexOf(f) === i
+        );
 
         let lastReported = 0;
         const reportProgress = (p: number) => {
@@ -295,21 +294,33 @@ export const videoService = {
             outputPath,
         };
 
+        const wipeOutputs = async () => {
+            await fs.promises.unlink(outputPath).catch(() => undefined);
+            await fs.promises.unlink(`${outputPath}.part`).catch(() => undefined);
+        };
+
         reportProgress(1);
         try {
             await runYtDlp(ytDlpPath, buildArgs(primaryFormat), runOpts);
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            const canRetry =
-                primaryFormat !== SAFE_SECTION_FORMAT &&
-                (isYoutubeForbiddenError(message) || /ffmpeg exited|stalled/i.test(message));
+            const retriable =
+                isYoutubeForbiddenError(message) || /ffmpeg exited|stalled/i.test(message);
+            if (!retriable || signal?.aborted) throw err;
 
-            if (!canRetry || signal?.aborted) throw err;
-
-            console.warn(`[yt-dlp] format "${primaryFormat}" failed; retrying with safe H.264 default`);
-            await fs.promises.unlink(outputPath).catch(() => undefined);
-            await fs.promises.unlink(`${outputPath}.part`).catch(() => undefined);
-            await runYtDlp(ytDlpPath, buildArgs(SAFE_SECTION_FORMAT), runOpts);
+            let lastErr: unknown = err;
+            for (const nextFormat of retryFormats) {
+                console.warn(`[yt-dlp] format failed; retrying with ${nextFormat.slice(0, 48)}…`);
+                await wipeOutputs();
+                try {
+                    await runYtDlp(ytDlpPath, buildArgs(nextFormat), runOpts);
+                    lastErr = null;
+                    break;
+                } catch (retryErr) {
+                    lastErr = retryErr;
+                }
+            }
+            if (lastErr) throw lastErr;
         }
 
         reportProgress(50);

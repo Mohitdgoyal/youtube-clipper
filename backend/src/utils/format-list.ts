@@ -1,4 +1,5 @@
 import { YtDlpOutput } from "../types/ytdlp";
+import { sectionFormatForHeight } from "./yt-dlp-args";
 
 export interface FormatInfo {
     format_id: string;
@@ -13,7 +14,7 @@ export function buildFormatList(info: YtDlpOutput): FormatInfo[] {
         format_id: string;
         label: string;
         height: number;
-        hasAudio: boolean;
+        fps: number;
     };
 
     const videoFormats = info.formats
@@ -27,24 +28,28 @@ export function buildFormatList(info: YtDlpOutput): FormatInfo[] {
                 f.ext === "mp4" &&
                 (f.vcodec.includes("avc1") || f.vcodec.includes("h264"))
         )
-        .map((f) => ({
-            format_id: f.format_id,
-            label: `${f.height}p${f.fps && f.fps > 30 ? f.fps : ""}`,
-            height: f.height || 0,
-            hasAudio: f.acodec !== "none",
-        }))
-        .sort((a, b) => b.height - a.height);
+        .map((f) => {
+            const height = f.height || 0;
+            const fps = f.fps && f.fps > 30 ? Math.round(f.fps) : 0;
+            return {
+                // Height/fps selector — not raw itag (299 etc. often 403/hang with sections)
+                format_id: sectionFormatForHeight(height, fps || undefined),
+                label: `${height}p${fps || ""}`,
+                height,
+                fps,
+            };
+        })
+        .sort((a, b) => b.height - a.height || b.fps - a.fps);
 
     const byLabel = new Map<string, Processed>();
     for (const current of videoFormats) {
-        const existing = byLabel.get(current.label);
-        if (!existing || (current.hasAudio && !existing.hasAudio)) {
+        if (!byLabel.has(current.label)) {
             byLabel.set(current.label, current);
         }
     }
 
     return Array.from(byLabel.values()).map((f) => ({
-        format_id: f.hasAudio ? f.format_id : `${f.format_id}+bestaudio`,
+        format_id: f.format_id,
         label: f.label,
     }));
 }

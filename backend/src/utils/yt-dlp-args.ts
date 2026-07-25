@@ -12,9 +12,24 @@ export const YT_CLIP_PLAYER_CLIENT =
 export const YT_METADATA_PLAYER_CLIENT =
     "youtube:player_client=web,default,-android_sdkless";
 
-/** H.264/AAC mp4 — 720p30 is fastest reliable section download. */
+/** Default "Best available": H.264/AAC up to 1080p60 (reliable with --download-sections). */
 export const SAFE_SECTION_FORMAT =
+    "bv[ext=mp4][vcodec^=avc1][height<=?1080][fps<=?60]+ba[ext=m4a]/best[ext=mp4][vcodec^=avc1][height<=?1080]/best";
+
+/** Last-resort fallback if a chosen quality 403s/stalls. */
+export const FALLBACK_SECTION_FORMAT =
     "bv[ext=mp4][vcodec^=avc1][height<=?720][fps<=?30]+ba[ext=m4a]/best[ext=mp4][vcodec^=avc1][height<=?720]/best";
+
+/** Build a height/fps selector (avoids fragile raw itags like 299 that hang on sections). */
+export function sectionFormatForHeight(height: number, fps?: number): string {
+    const h = Math.max(144, Math.min(2160, Math.round(height)));
+    const f = fps && fps > 30 ? Math.min(60, Math.round(fps)) : undefined;
+    const fpsFilter = f ? `[fps<=?${f}]` : "";
+    return (
+        `bv[ext=mp4][vcodec^=avc1][height<=?${h}]${fpsFilter}+ba[ext=m4a]/` +
+        `best[ext=mp4][vcodec^=avc1][height<=?${h}]/best`
+    );
+}
 
 function appendCookies(args: string[]): void {
     const cookiesPath =

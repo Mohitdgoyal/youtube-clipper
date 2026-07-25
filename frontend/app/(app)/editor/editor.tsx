@@ -112,7 +112,7 @@ export default function Editor() {
           const data = await res.json();
           setMetadata({ title: data.title });
           setFormats(data.formats || []);
-          // Prefer "Best available" — specific itags (e.g. 299) often 403/hang with section downloads
+          // Default Best available (backend: up to 1080p60 H.264). Picker uses height selectors, not raw itags.
           setSelectedFormat("");
         } else {
           toast.error("Could not load video info. Check the URL and try again.");
