@@ -6,7 +6,6 @@ import { motion } from "motion/react";
 import { toast } from "sonner";
 import VideoPreview from "@/components/editor/VideoPreview";
 import ClipForm, { type BulkLineStatus } from "@/components/editor/ClipForm";
-import DownloadStatus from "@/components/editor/DownloadStatus";
 import PingBackend from "@/components/ping-backend";
 import {
   CookieHealthChip,
@@ -67,7 +66,6 @@ export default function Editor() {
   const [bulkTimestamps, setBulkTimestamps] = useState("");
   const [bulkLineStatuses, setBulkLineStatuses] = useState<BulkLineStatus[]>([]);
   const [cookieWarning, setCookieWarning] = useState<string | null>(null);
-  const [downloadCount, setDownloadCount] = useState(0);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState("");
   const progressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -158,21 +156,6 @@ export default function Editor() {
       controller.abort();
     };
   }, [url]);
-
-  useEffect(() => {
-    const fetchDownloadCount = async () => {
-      try {
-        const res = await fetch("/api/user/download-count");
-        if (res.ok) {
-          const data = await res.json();
-          setDownloadCount(data.downloadCount);
-        }
-      } catch (error) {
-        console.error("Error fetching download count:", error);
-      }
-    };
-    fetchDownloadCount();
-  }, []);
 
   const handleCancel = useCallback(async () => {
     const id = activeJobIdRef.current;
@@ -330,8 +313,6 @@ export default function Editor() {
           const filename = `${safeTitle} - ${job.start.replace(/:/g, ".")}-${job.end.replace(/:/g, ".")}.mp4`;
           await triggerDownload(filename, ready.url, id);
 
-          await fetch("/api/user/download-count", { method: "POST" });
-          setDownloadCount((prev) => prev + 1);
           patchLine(i, { status: "ready" });
           readyCount++;
 
@@ -452,7 +433,6 @@ export default function Editor() {
             progress={progress}
             stage={stage || undefined}
           />
-          <DownloadStatus count={downloadCount} />
         </section>
       </div>
 
