@@ -11,6 +11,7 @@ import fs from "fs";
 import { createJobId } from "../utils/ids";
 import { timeToSeconds } from "../utils/time";
 import { isAllowedYouTubeUrl } from "../utils/youtube-url";
+import { deleteJobArtifacts } from "../utils/job-files";
 import { rateLimit } from "../middleware/rate-limit.middleware";
 import { JobUpdate } from "../types/job";
 
@@ -21,7 +22,6 @@ function clientDownloadUrl(publicUrl: string | null | undefined): string | null 
     return storageService.signPublicUrl(publicUrl);
 }
 
-/** Delete job row + file after signed URL TTL so slow downloads aren't raced. */
 function scheduleJobCleanup(id: string, delayMs: number) {
     const timer = setTimeout(async () => {
         try {
@@ -30,6 +30,7 @@ function scheduleJobCleanup(id: string, delayMs: number) {
             if (job.storage_path) {
                 await storageService.deleteFile(job.storage_path);
             }
+            await deleteJobArtifacts(id);
             await dbService.deleteJob(id);
             console.log(`Auto-cleaned job ${id} after ${Math.round(delayMs / 1000)}s TTL`);
         } catch (err) {
@@ -39,20 +40,58 @@ function scheduleJobCleanup(id: string, delayMs: number) {
     timer.unref?.();
 }
 
+type JobSnapshot = {
+    status: string;
+    stage: string | null;
+    progress: number;
+    error: string | null;
+    public_url: string | null;
+    storage_path: string | null;
+};
+
+const jobSnapshots = new Map<string, JobSnapshot>();
+
+function getOrCreateSnapshot(id: string): JobSnapshot {
+    let snap = jobSnapshots.get(id);
+    if (!snap) {
+        snap = {
+            status: "processing",
+            stage: null,
+            progress: 0,
+            error: null,
+            public_url: null,
+            storage_path: null,
+        };
+        jobSnapshots.set(id, snap);
+    }
+    return snap;
+}
+
+function snapshotToPayload(snap: JobSnapshot): JobEventPayload {
+    return {
+        status: snap.status,
+        stage: snap.stage,
+        progress: snap.progress,
+        error: snap.error,
+        url: clientDownloadUrl(snap.public_url),
+        storagePath: snap.storage_path,
+    };
+}
+
 async function publishJobUpdate(id: string, data: JobUpdate): Promise<void> {
     await dbService.updateJob(id, data);
-    const job = await dbService.getJob(id);
-    if (!job) return;
+    const snap = getOrCreateSnapshot(id);
+    if (data.status !== undefined) snap.status = data.status;
+    if (data.stage !== undefined) snap.stage = data.stage ?? null;
+    if (data.progress !== undefined) snap.progress = data.progress ?? 0;
+    if (data.error !== undefined) snap.error = data.error ?? null;
+    if (data.public_url !== undefined) snap.public_url = data.public_url ?? null;
+    if (data.storage_path !== undefined) snap.storage_path = data.storage_path ?? null;
+    jobEvents.emit(id, snapshotToPayload(snap));
 
-    const payload: JobEventPayload = {
-        status: job.status,
-        stage: job.stage,
-        progress: job.progress ?? 0,
-        error: job.error,
-        url: clientDownloadUrl(job.public_url),
-        storagePath: job.storage_path,
-    };
-    jobEvents.emit(id, payload);
+    if (snap.status === "ready" || snap.status === "error") {
+        jobSnapshots.delete(id);
+    }
 }
 
 function toEventPayload(job: NonNullable<Awaited<ReturnType<typeof dbService.getJob>>>): JobEventPayload {
@@ -87,70 +126,84 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
 
     try {
         await dbService.createJob(id, userId);
-        await publishJobUpdate(id, { stage: 'queued' });
+        getOrCreateSnapshot(id);
+        await publishJobUpdate(id, { stage: "queued" });
     } catch (error) {
-        console.error('Job creation error:', error);
-        return res.status(500).json({ error: 'Failed to create job' });
+        console.error("Job creation error:", error);
+        return res.status(500).json({ error: "Failed to create job" });
     }
 
-    // Process via concurrency-limited queue (default 2 workers)
     clipJobQueue.add(async () => {
         let finalJobStatus: JobUpdate = {};
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
             controller.abort();
-        }, 10 * 60 * 1000); // 10 minutes
+        }, 10 * 60 * 1000);
 
         try {
             const durationSeconds = endSec - startSec;
 
-            // Throttle progress DB writes (~500ms); always flush 0/100 immediately
             let lastProgressWrite = 0;
-            const updateProgress = async (p: number) => {
+            let progressChain: Promise<void> = Promise.resolve();
+            const updateProgress = (p: number) => {
                 const now = Date.now();
-                if (p <= 0 || p >= 100 || now - lastProgressWrite >= 500) {
-                    lastProgressWrite = now;
-                    await publishJobUpdate(id, { progress: p });
-                }
+                if (p > 0 && p < 100 && now - lastProgressWrite < 500) return;
+                lastProgressWrite = now;
+                progressChain = progressChain
+                    .then(() => publishJobUpdate(id, { progress: p }))
+                    .catch((err) => console.warn(`Progress update failed for ${id}:`, err));
             };
 
-            await publishJobUpdate(id, { stage: 'downloading' });
-            const inputPath = await videoService.downloadAndClip(id, {
+            await publishJobUpdate(id, { stage: "downloading" });
+            const {
+                outputPath: inputPath,
+                sectionStartTime,
+                cutStartSec,
+                durationSec: clipDurationSec,
+            } = await videoService.downloadAndClip(id, {
                 url,
                 startTime,
                 endTime,
                 subtitles,
                 formatId,
                 signal: controller.signal,
-                onProgress: updateProgress
+                onProgress: updateProgress,
             });
-            const fastPath = path.join(UPLOADS_DIR, `clip-${id}-fast.mp4`);
 
-            // Optimization: If no subtitles are needed, we can skip the FFmpeg re-processing entirely
-            // yt-dlp has already downloaded the clip in the correct format (mp4) thanks to our args.
+            const storagePath = `clip-${id}.mp4`;
+            let publicUrl: string;
+
             if (!subtitles) {
-                await publishJobUpdate(id, { stage: 'processing' });
-                // Just rename directly to fastPath
-                await fs.promises.rename(inputPath, fastPath);
-                await updateProgress(100);
+                // yt-dlp already wrote the final clip — skip FFmpeg and -fast rename hop
+                await publishJobUpdate(id, { stage: "processing" });
+                const finalPath = path.join(UPLOADS_DIR, storagePath);
+                if (inputPath !== finalPath && fs.existsSync(inputPath)) {
+                    await fs.promises.rename(inputPath, finalPath);
+                }
+                lastProgressWrite = 0;
+                updateProgress(100);
+                await progressChain;
+                publicUrl = storageService.getPublicUrl(storagePath);
             } else {
-                // Subtitles processing path
+                const fastPath = path.join(UPLOADS_DIR, `clip-${id}-fast.mp4`);
                 const subPath = inputPath.replace(/\.mp4$/, ".en.vtt");
                 const subtitlesExist = fs.existsSync(subPath);
 
                 if (subtitlesExist) {
                     const adjustedSubPath = path.join(UPLOADS_DIR, `clip-${id}-adjusted.vtt`);
-                    await adjustSubtitleTimestamps(subPath, adjustedSubPath, startTime);
+                    // Align VTT to the padded section file, then FFmpeg -ss/-t precise-cuts.
+                    await adjustSubtitleTimestamps(subPath, adjustedSubPath, sectionStartTime);
                     await fs.promises.rename(adjustedSubPath, subPath);
                 }
 
-                await publishJobUpdate(id, { stage: 'processing' });
+                await publishJobUpdate(id, { stage: "processing" });
                 await videoService.processWithFFmpeg(inputPath, fastPath, {
                     subtitles,
                     subPath: subtitlesExist ? subPath : undefined,
                     signal: controller.signal,
                     onProgress: updateProgress,
-                    durationSeconds
+                    durationSeconds: clipDurationSec || durationSeconds,
+                    cutStartSec,
                 });
 
                 await fs.promises.unlink(inputPath).catch((err) => {
@@ -161,31 +214,30 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
                         console.warn(`Failed to cleanup subtitle file ${subPath}:`, err.message);
                     });
                 }
-            }
 
-            // Finalize in place — rename avoids a full-disk re-copy of the clip
-            const storagePath = `clip-${id}.mp4`;
-            await publishJobUpdate(id, { stage: 'uploading' });
-            const publicUrl = await storageService.finalizeLocalFile(`clip-${id}-fast.mp4`, storagePath);
+                await progressChain;
+                await publishJobUpdate(id, { stage: "uploading" });
+                publicUrl = await storageService.finalizeLocalFile(`clip-${id}-fast.mp4`, storagePath);
+            }
 
             finalJobStatus = {
                 storage_path: storagePath,
                 public_url: publicUrl,
-                status: 'ready',
-                stage: 'done',
-                progress: 100
+                status: "ready",
+                stage: "done",
+                progress: 100,
             };
         } catch (err: any) {
-            if (err.message === 'Aborted') {
-                finalJobStatus = { status: 'error', error: 'Job timed out (limit: 10 mins)' };
+            if (err.message === "Aborted") {
+                finalJobStatus = { status: "error", error: "Job timed out (limit: 10 mins)" };
             } else {
-                finalJobStatus = { status: 'error', error: err.message };
+                finalJobStatus = { status: "error", error: err.message };
             }
+            await deleteJobArtifacts(id);
         } finally {
             clearTimeout(timeoutId);
             await publishJobUpdate(id, finalJobStatus);
-            // Keep file until signed URL expires (default 1h) — avoids racing slow downloads
-            if (finalJobStatus.status === 'ready') {
+            if (finalJobStatus.status === "ready") {
                 scheduleJobCleanup(id, DOWNLOAD_URL_TTL_SECONDS * 1000);
             }
         }
@@ -198,7 +250,7 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
 
 router.get("/clip/:id", async (req, res) => {
     const job = await dbService.getJob(req.params.id);
-    if (!job) return res.status(404).json({ error: 'job not found' });
+    if (!job) return res.status(404).json({ error: "job not found" });
 
     return res.json({
         status: job.status,
@@ -206,20 +258,19 @@ router.get("/clip/:id", async (req, res) => {
         progress: job.progress ?? 0,
         error: job.error,
         url: clientDownloadUrl(job.public_url),
-        storagePath: job.storage_path
+        storagePath: job.storage_path,
     });
 });
 
-/** Server-Sent Events stream for real-time job status / progress */
 router.get("/clip/:id/events", async (req, res) => {
     const job = await dbService.getJob(req.params.id);
-    if (!job) return res.status(404).json({ error: 'job not found' });
+    if (!job) return res.status(404).json({ error: "job not found" });
 
-    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    if (typeof (res as any).flushHeaders === 'function') {
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    if (typeof (res as any).flushHeaders === "function") {
         (res as any).flushHeaders();
     }
 
@@ -227,11 +278,10 @@ router.get("/clip/:id/events", async (req, res) => {
         res.write(`data: ${JSON.stringify(payload)}\n\n`);
     };
 
-    // Immediate snapshot so clients don't wait for the next write
     send(toEventPayload(job));
 
-    if (job.status === 'ready' || job.status === 'error') {
-        res.write('event: end\ndata: {}\n\n');
+    if (job.status === "ready" || job.status === "error") {
+        res.write("event: end\ndata: {}\n\n");
         return res.end();
     }
 
@@ -246,8 +296,8 @@ router.get("/clip/:id/events", async (req, res) => {
     const unsubscribe = jobEvents.subscribe(req.params.id, (payload) => {
         if (closed) return;
         send(payload);
-        if (payload.status === 'ready' || payload.status === 'error') {
-            res.write('event: end\ndata: {}\n\n');
+        if (payload.status === "ready" || payload.status === "error") {
+            res.write("event: end\ndata: {}\n\n");
             cleanup();
             res.end();
         }
@@ -255,11 +305,11 @@ router.get("/clip/:id/events", async (req, res) => {
 
     const heartbeat = setInterval(() => {
         if (!closed) {
-            res.write(': heartbeat\n\n');
+            res.write(": heartbeat\n\n");
         }
     }, 15_000);
 
-    req.on('close', cleanup);
+    req.on("close", cleanup);
 });
 
 router.get("/clip/:id/url", async (req, res) => {
@@ -279,7 +329,7 @@ router.get("/clip/:id/url", async (req, res) => {
         const signedUrl = await storageService.getSignedDownloadUrl(job.storage_path, filename as string);
         return res.json({ url: signedUrl });
     } catch (error: any) {
-        console.error('Error generating signed URL:', error);
+        console.error("Error generating signed URL:", error);
         return res.status(500).json({ error: error.message });
     }
 });
@@ -289,6 +339,7 @@ router.delete("/clip/:id/cleanup", async (req, res) => {
     if (job && job.storage_path) {
         await storageService.deleteFile(job.storage_path);
     }
+    await deleteJobArtifacts(req.params.id);
     await dbService.deleteJob(req.params.id);
     return res.json({ success: true });
 });

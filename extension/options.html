@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>YouTube Clipper Options</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 28rem; margin: 2rem auto; padding: 0 1rem; }
+    label { display: block; font-weight: 600; margin-bottom: 0.5rem; }
+    input { width: 100%; padding: 0.5rem; box-sizing: border-box; }
+    p { color: #555; font-size: 0.9rem; line-height: 1.4; }
+    button { margin-top: 1rem; padding: 0.5rem 1rem; cursor: pointer; }
+    #status { margin-top: 0.75rem; min-height: 1.25rem; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <h1>Clipper app URL</h1>
+  <p>
+    Override where the Clip button opens. Leave blank for automatic:
+    unpacked → <code>http://localhost:3000</code>, packaged → <code>https://clippa.in</code>.
+  </p>
+  <label for="base">App base URL</label>
+  <input id="base" type="url" placeholder="https://clippa.in" />
+  <button id="save" type="button">Save</button>
+  <div id="status"></div>
+  <script src="options.js"></script>
+</body>
+</html>

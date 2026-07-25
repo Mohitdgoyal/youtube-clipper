@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { motion } from "motion/react";
@@ -12,6 +12,8 @@ import { getVideoId } from "@/lib/utils";
 import { waitForJob } from "@/lib/job-events";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 
+const SESSION_USER = { id: "personal-user", name: "Personal User" };
+
 export default function Editor() {
   const searchParams = useSearchParams();
   const [url, setUrl] = useState(() => searchParams.get("url") ?? "");
@@ -19,7 +21,6 @@ export default function Editor() {
   const [endTime, setEndTime] = useState("00:00:00");
   const [addSubs, setAddSubs] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [metadata, setMetadata] = useState<{ title?: string }>({});
 
   const [formats, setFormats] = useState<{ format_id: string, label: string }[]>([]);
@@ -27,58 +28,53 @@ export default function Editor() {
   const [isMetadataLoading, setIsMetadataLoading] = useState(false);
   const [isBulk, setIsBulk] = useState(false);
   const [bulkTimestamps, setBulkTimestamps] = useState("");
-  const sessionUser = { id: "personal-user", name: "Personal User" };
   const [downloadCount, setDownloadCount] = useState(0);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState("");
+  const progressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Debounced metadata/formats fetch (400ms) with abort on URL change
+  const onJobProgress = useCallback((data: { stage?: string | null; progress?: number; status?: string }) => {
+    setStage(data.stage || "processing");
+    const next = Number(data.status === "ready" ? 100 : (data.progress || 0));
+    if (progressTimer.current) clearTimeout(progressTimer.current);
+    progressTimer.current = setTimeout(() => setProgress(next), 150);
+  }, []);
+
+  // Debounced combined video info fetch (400ms) with abort on URL change
   useEffect(() => {
     const videoId = getVideoId(url);
     if (!videoId) {
       const reset = () => {
-        setThumbnailUrl(null);
         setMetadata({});
         setFormats([]);
         setSelectedFormat('');
         setIsMetadataLoading(false);
       };
-      // Defer reset so it isn't a synchronous setState inside the effect body
       const id = setTimeout(reset, 0);
       return () => clearTimeout(id);
     }
 
     const controller = new AbortController();
-    const startLoad = () => {
-      setThumbnailUrl(null);
-      setIsMetadataLoading(true);
-    };
-    const startId = setTimeout(startLoad, 0);
+    const startId = setTimeout(() => setIsMetadataLoading(true), 0);
 
     const timer = setTimeout(async () => {
       try {
         const vUrl = `https://www.youtube.com/watch?v=${videoId}`;
-        const [metaRes, formatsRes] = await Promise.all([
-          fetch(`/api/metadata?url=${encodeURIComponent(vUrl)}`, { signal: controller.signal }),
-          fetch(`/api/formats?url=${encodeURIComponent(vUrl)}`, { signal: controller.signal }),
-        ]);
+        const res = await fetch(`/api/video?url=${encodeURIComponent(vUrl)}`, {
+          signal: controller.signal,
+        });
 
         if (controller.signal.aborted) return;
 
-        if (metaRes.ok) {
-          const meta = await metaRes.json();
-          setMetadata({ title: meta.title });
-          setThumbnailUrl(meta.image || `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`);
-        }
-        if (formatsRes.ok) {
-          const fData = await formatsRes.json();
-          setFormats(fData.formats || []);
-          if (fData.formats?.length > 0) setSelectedFormat(fData.formats[0].format_id);
+        if (res.ok) {
+          const data = await res.json();
+          setMetadata({ title: data.title });
+          setFormats(data.formats || []);
+          if (data.formats?.length > 0) setSelectedFormat(data.formats[0].format_id);
         }
       } catch (error) {
         if ((error as Error).name === "AbortError") return;
         console.error("Error fetching metadata:", error);
-        setThumbnailUrl(`https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`);
       } finally {
         if (!controller.signal.aborted) setIsMetadataLoading(false);
       }
@@ -103,8 +99,8 @@ export default function Editor() {
         console.error("Error fetching download count:", error);
       }
     };
-    if (sessionUser.id) fetchDownloadCount();
-  }, [sessionUser.id]);
+    fetchDownloadCount();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -137,7 +133,7 @@ export default function Editor() {
             endTime: job.end,
             subtitles: addSubs,
             formatId: selectedFormat,
-            userId: sessionUser.id
+            userId: SESSION_USER.id
           }),
         });
 
@@ -156,17 +152,23 @@ export default function Editor() {
         const kickoffJson = await kickoff.json();
         const { id } = kickoffJson;
 
-        await waitForJob(id, (data) => {
-          setStage(data.stage || "processing");
-          setProgress(Number(data.status === "ready" ? 100 : (data.progress || 0)));
-        });
+        const ready = await waitForJob(id, onJobProgress);
 
-        // Trigger download without navigating away (keeps bulk loop alive)
+        // Prefer signed URL from SSE/status (skips Next→backend status hop)
         const safeTitle = (metadata.title || "clip").replace(/[\\/:"*?<>|]/g, "_");
         const filename = `${safeTitle} - ${job.start.replace(/:/g, '.')}-${job.end.replace(/:/g, '.')}.mp4`;
-        const downloadUrl = `/api/clip/${id}/download?filename=${encodeURIComponent(filename)}`;
+        let downloadHref = `/api/clip/${id}/download?filename=${encodeURIComponent(filename)}`;
+        if (ready.url) {
+          try {
+            const signed = new URL(ready.url);
+            signed.searchParams.set("download", filename);
+            downloadHref = signed.toString();
+          } catch {
+            // keep proxy fallback
+          }
+        }
         const anchor = document.createElement("a");
-        anchor.href = downloadUrl;
+        anchor.href = downloadHref;
         anchor.download = filename;
         anchor.rel = "noopener";
         document.body.appendChild(anchor);
@@ -206,7 +208,6 @@ export default function Editor() {
       <section className="flex flex-col w-full gap-4 max-w-xl mx-auto">
         <VideoPreview
           isLoading={isMetadataLoading}
-          thumbnailUrl={thumbnailUrl}
           title={metadata.title}
           url={url}
           startTime={startTime}

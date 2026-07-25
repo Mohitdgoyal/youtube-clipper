@@ -25,19 +25,29 @@ async function cleanupOldJobsAndFiles() {
   }
 }
 
-/** Remove stale temp sidecars (vtt / -fast) older than 24h */
+/**
+ * Remove stale temps and orphan clip-*.mp4 files older than 24h
+ * (including failed jobs that never set storage_path).
+ */
 async function cleanupTempUploads() {
   if (!fs.existsSync(UPLOADS_DIR)) return;
   const cutoffMs = Date.now() - 24 * 60 * 60 * 1000;
   const files = await fs.promises.readdir(UPLOADS_DIR);
+  const knownPaths = new Set(await dbService.listStoragePaths());
   let removed = 0;
 
   for (const name of files) {
     const isTemp =
       name.endsWith(".vtt") ||
       name.includes("-fast.mp4") ||
-      name.includes("-adjusted.vtt");
-    if (!isTemp) continue;
+      name.includes("-adjusted.vtt") ||
+      name.endsWith(".part") ||
+      /\.f\d+\./.test(name);
+
+    const isOrphanClip =
+      /^clip-[a-f0-9]+\.mp4$/i.test(name) && !knownPaths.has(name);
+
+    if (!isTemp && !isOrphanClip) continue;
 
     const full = path.join(UPLOADS_DIR, name);
     try {
@@ -52,7 +62,7 @@ async function cleanupTempUploads() {
   }
 
   if (removed > 0) {
-    console.log(`Cleaned up ${removed} temp upload file(s)`);
+    console.log(`Cleaned up ${removed} temp/orphan upload file(s)`);
   }
 }
 
@@ -68,6 +78,5 @@ async function cleanupTask() {
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   cleanupTask();
-  // Periodic cleanup (hourly)
   setInterval(cleanupTask, 60 * 60 * 1000).unref?.();
 });

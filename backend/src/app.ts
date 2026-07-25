@@ -12,6 +12,9 @@ import { verifyDownloadSignature } from "./utils/signed-url";
 
 export const app = express();
 
+// Railway / reverse proxies: use X-Forwarded-For for req.ip (rate limits)
+app.set("trust proxy", 1);
+
 const corsOptions: cors.CorsOptions = {
     origin: ALLOWED_ORIGIN,
     credentials: true,

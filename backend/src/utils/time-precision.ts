@@ -7,14 +7,15 @@ export function hasSubSecondPrecision(time: string): boolean {
 }
 
 /**
- * Force keyframe cuts only when burn-in or sub-second accuracy is needed.
- * Otherwise yt-dlp can cut at nearest keyframes (faster, less re-encode).
+ * Force keyframe cuts only for sub-second precision when NOT burning subtitles.
+ * Subtitle burn-in already re-encodes in FFmpeg — forcing keyframes here would
+ * double-encode. Prefer nearest-keyframe section download + one FFmpeg pass.
  */
 export function needsForcedKeyframes(
     startTime: string,
     endTime: string,
     subtitles?: boolean
 ): boolean {
-    if (subtitles) return true;
+    if (subtitles) return false;
     return hasSubSecondPrecision(startTime) || hasSubSecondPrecision(endTime);
 }

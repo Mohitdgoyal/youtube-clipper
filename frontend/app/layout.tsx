@@ -29,10 +29,8 @@ export const metadata: Metadata = {
     title: "Clippa - Clean & Fast Video Clipper | HD YouTube Downloads",
     description:
       "Premium YouTube video clipper with zero ads. Download & clip HD videos with precise timestamps. Simple pricing, maximum quality.",
-    images: ["/og-image.png"],
   },
   other: {
-    "twitter:image": ["/og-image.png"],
     "twitter:card": "summary_large_image",
     "twitter:url": "https://clippa.in/",
     "twitter:domain": "clippa.in",
@@ -44,12 +42,10 @@ export const metadata: Metadata = {
     "og:title": "Clippa - Clean & Fast Video Clipper | HD YouTube Downloads",
     "og:description":
       "Premium YouTube video clipper with zero ads. Download & clip HD videos with precise timestamps. Simple pricing, maximum quality.",
-    "og:image": ["/og-image.png"],
   },
   robots: {
     index: true,
     follow: true,
-    nocache: true,
     googleBot: {
       index: true,
       follow: true,

@@ -1,14 +1,16 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Performance optimizations
   experimental: {
-    // Enable optimistic client cache for faster navigation
     optimisticClientCache: true,
+    optimizePackageImports: ["motion"],
   },
-  // Optimize images
   images: {
-    formats: ['image/avif', 'image/webp'],
+    formats: ["image/avif", "image/webp"],
+    remotePatterns: [
+      { protocol: "https", hostname: "img.youtube.com" },
+      { protocol: "https", hostname: "i.ytimg.com" },
+    ],
   },
 };
 

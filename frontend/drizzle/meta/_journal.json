@@ -8,6 +8,13 @@
       "when": 1784997847292,
       "tag": "0000_sqlite_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785000000000,
+      "tag": "0001_drop_auth_era_tables",
+      "breakpoints": true
     }
   ]
 }

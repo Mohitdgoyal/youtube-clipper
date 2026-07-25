@@ -5,12 +5,6 @@ import { dbService } from "../services/db.service";
 import { storageService } from "../services/storage.service";
 
 // Store original methods to restore later if needed
-const originalGetJob = dbService.getJob;
-const originalCreateJob = dbService.createJob;
-const originalUpdateJob = dbService.updateJob;
-const originalDeleteJob = dbService.deleteJob;
-const originalUploadFile = storageService.uploadFile;
-
 beforeAll(() => {
     // Mock dbService methods
     dbService.createJob = mock(() => Promise.resolve());
@@ -30,7 +24,7 @@ beforeAll(() => {
     dbService.deleteJob = mock(() => Promise.resolve());
 
     // Mock storageService methods
-    storageService.uploadFile = mock(() => Promise.resolve("http://bucket/file.mp4"));
+    storageService.finalizeLocalFile = mock(() => Promise.resolve("http://localhost:3001/uploads/file.mp4"));
     storageService.deleteFile = mock(() => Promise.resolve());
 });
 

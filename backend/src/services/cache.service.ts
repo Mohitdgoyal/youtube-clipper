@@ -16,7 +16,7 @@ class MemoryCache {
         this.defaultTTL = defaultTTLSeconds * 1000;
 
         // Cleanup expired entries every minute
-        setInterval(() => this.cleanup(), 60 * 1000);
+        setInterval(() => this.cleanup(), 60 * 1000).unref?.();
     }
 
     get<T>(key: string): T | null {

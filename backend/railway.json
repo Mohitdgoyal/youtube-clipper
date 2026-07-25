@@ -9,16 +9,21 @@
       "cp /tmp/ffmpeg-*-amd64-static/ffmpeg /root/.local/bin/ffmpeg",
       "cp /tmp/ffmpeg-*-amd64-static/ffprobe /root/.local/bin/ffprobe",
       "chmod a+rx /root/.local/bin/ffmpeg /root/.local/bin/ffprobe",
-      "curl -fsSL https://bun.sh/install | bash"
+      "curl -fsSL https://bun.sh/install | bash",
+      "bun install",
+      "bun run build"
     ],
     "postinstall": [],
     "env": {
       "PATH": "/root/.local/bin:/root/.bun/bin:${PATH}",
       "YTDLP_PATH": "/root/.local/bin/yt-dlp",
-      "FFMPEG_PATH": "/root/.local/bin/ffmpeg"
+      "FFMPEG_PATH": "/root/.local/bin/ffmpeg",
+      "DISABLE_HW_ENCODE": "1",
+      "FFMPEG_PRESET": "veryfast",
+      "FFMPEG_ENCODER": "libx264"
     }
   },
   "start": {
-    "cmd": "bun run src/index.ts"
+    "cmd": "bun run start"
   }
 }

@@ -1,15 +1,20 @@
 {
     "manifest_version": 3,
     "name": "YouTube Clipper",
-    "version": "1.0",
+    "version": "1.1",
     "description": "Clip YouTube videos directly",
     "permissions": [
         "activeTab",
-        "scripting"
+        "scripting",
+        "storage"
     ],
     "host_permissions": [
         "*://*.youtube.com/*"
     ],
+    "options_ui": {
+        "page": "options.html",
+        "open_in_tab": true
+    },
     "content_scripts": [
         {
             "matches": [

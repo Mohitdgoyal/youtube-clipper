@@ -18,11 +18,16 @@ export function getVideoEncoder(): EncoderConfig {
     if (cached) return cached;
 
     const ffmpeg = resolveFfmpeg();
+    const preset = process.env.FFMPEG_PRESET || FFMPEG_PRESET;
+    const disableHw =
+        process.env.DISABLE_HW_ENCODE === "1" ||
+        process.env.DISABLE_HW_ENCODE === "true";
+
     const envEncoder = process.env.FFMPEG_ENCODER;
     if (envEncoder) {
         const cfg: EncoderConfig = {
             encoder: envEncoder,
-            videoArgs: buildSoftwareOrGenericArgs(envEncoder, process.env.FFMPEG_PRESET || FFMPEG_PRESET),
+            videoArgs: buildSoftwareOrGenericArgs(envEncoder, preset),
         };
         if (!probeEncoder(ffmpeg, cfg)) {
             console.warn(`FFMPEG_ENCODER=${envEncoder} failed probe; falling back to auto-detect`);
@@ -31,6 +36,15 @@ export function getVideoEncoder(): EncoderConfig {
             console.log(`FFmpeg encoder: ${envEncoder} (from env)`);
             return cached;
         }
+    }
+
+    if (disableHw || envEncoder === "libx264") {
+        cached = {
+            encoder: "libx264",
+            videoArgs: ["-preset", preset || "veryfast", "-crf", "28", "-threads", "0"],
+        };
+        console.log("FFmpeg encoder: libx264 (DISABLE_HW_ENCODE or forced software)");
+        return cached;
     }
 
     const candidates: EncoderConfig[] = [
@@ -48,7 +62,7 @@ export function getVideoEncoder(): EncoderConfig {
         },
         {
             encoder: "libx264",
-            videoArgs: ["-preset", process.env.FFMPEG_PRESET || "ultrafast", "-crf", "28", "-threads", "0"],
+            videoArgs: ["-preset", preset || "veryfast", "-crf", "28", "-threads", "0"],
         },
     ];
 

@@ -74,7 +74,6 @@ vi.mock('@/components/editor/KeyboardShortcutsInfo', () => ({
 describe('VideoPreview', () => {
     const defaultProps = {
         isLoading: false,
-        thumbnailUrl: null,
         title: 'Test Video',
         url: 'https://youtube.com/watch?v=test',
         startTime: '00:00:00',

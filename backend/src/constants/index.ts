@@ -26,13 +26,13 @@ if (NODE_ENV === "production") {
 
 export const BACKEND_SECRET = rawSecret || "dev-secret";
 
-// FFmpeg — encoder auto-detected at runtime unless FFMPEG_ENCODER is set
-export const FFMPEG_PRESET = process.env.FFMPEG_PRESET || "ultrafast";
+// FFmpeg — encoder auto-detected at runtime unless FFMPEG_ENCODER / DISABLE_HW_ENCODE
+export const FFMPEG_PRESET = process.env.FFMPEG_PRESET || "veryfast";
 
-// Download Optimizations
+// Download Optimizations (toned down to reduce YouTube throttling / CPU thrash)
 export const BUFFER_SIZE = process.env.BUFFER_SIZE || "4M";
-export const ARIA2C_CONNECTIONS = process.env.ARIA2C_CONNECTIONS || "32";
-export const CONCURRENT_FRAGMENTS = process.env.CONCURRENT_FRAGMENTS || "16";
+export const ARIA2C_CONNECTIONS = process.env.ARIA2C_CONNECTIONS || "16";
+export const CONCURRENT_FRAGMENTS = process.env.CONCURRENT_FRAGMENTS || "8";
 
 // Clip job concurrency (Phase 2 queue)
 export const CLIP_JOB_CONCURRENCY = Number(process.env.CLIP_JOB_CONCURRENCY || 2);

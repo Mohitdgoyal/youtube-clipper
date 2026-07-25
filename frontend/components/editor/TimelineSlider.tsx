@@ -11,15 +11,6 @@ interface TimelineSliderProps {
     videoId?: string;
 }
 
-// Generate thumbnail URLs at regular intervals
-function getThumbnailUrl(videoId: string, index: number): string {
-    // YouTube storyboard thumbnails - using different thumbnail qualities
-    // These are the standard thumbnail endpoints
-    const qualities = ['default', 'mqdefault', 'hqdefault'];
-    const quality = qualities[index % qualities.length];
-    return `https://img.youtube.com/vi/${videoId}/${quality}.jpg`;
-}
-
 export const TimelineSlider = React.forwardRef<
     React.ElementRef<typeof SliderPrimitive.Root>,
     TimelineSliderProps
@@ -38,33 +29,17 @@ export const TimelineSlider = React.forwardRef<
         onValueChange(secondsToTime(newValue[0]), secondsToTime(newValue[1]));
     };
 
-    // Generate thumbnail positions (show ~8 thumbnails across the timeline)
-    const thumbnailCount = 8;
-    const thumbnails = React.useMemo(() => {
-        if (!videoId) return [];
-        return Array.from({ length: thumbnailCount }, (_, i) => ({
-            position: (i / (thumbnailCount - 1)) * 100,
-            url: getThumbnailUrl(videoId, i)
-        }));
-    }, [videoId]);
+    const posterUrl = videoId
+        ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
+        : null;
 
     return (
         <div className="relative w-full">
-            {/* Thumbnail strip background */}
-            {videoId && thumbnails.length > 0 && (
-                <div className="absolute inset-0 h-10 -top-1 rounded-lg overflow-hidden opacity-30 pointer-events-none">
-                    <div className="flex h-full">
-                        {thumbnails.map((thumb, i) => (
-                            <div
-                                key={i}
-                                className="flex-1 h-full bg-cover bg-center"
-                                style={{
-                                    backgroundImage: `url(${thumb.url})`,
-                                }}
-                            />
-                        ))}
-                    </div>
-                    {/* Gradient overlay for better slider visibility */}
+            {posterUrl && (
+                <div
+                    className="absolute inset-0 h-10 -top-1 rounded-lg overflow-hidden opacity-30 pointer-events-none bg-cover bg-center"
+                    style={{ backgroundImage: `url(${posterUrl})` }}
+                >
                     <div className="absolute inset-0 bg-gradient-to-b from-transparent via-background/50 to-background" />
                 </div>
             )}

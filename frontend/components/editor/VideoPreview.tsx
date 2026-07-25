@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback, Suspense, lazy } from "react";
+import { useRef, useState, useEffect, useCallback, Suspense, lazy, memo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { Timer, Scissors } from "lucide-react";
@@ -12,7 +12,6 @@ const YouTube = lazy(() => import("react-youtube"));
 
 interface VideoPreviewProps {
     isLoading: boolean;
-    thumbnailUrl: string | null;
     title?: string;
     url: string;
     // We add these props to control the slider
@@ -47,7 +46,7 @@ function YouTubeLoadingSkeleton() {
     );
 }
 
-export default function VideoPreview({
+function VideoPreview({
     isLoading,
     title,
     url,
@@ -263,4 +262,6 @@ export default function VideoPreview({
         </AnimatePresence>
     );
 }
+
+export default memo(VideoPreview);
 

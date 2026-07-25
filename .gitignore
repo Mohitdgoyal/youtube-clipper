@@ -5,6 +5,13 @@ node_modules/
 dist/
 build/
 
+# Local SQLite / Drizzle artifacts
+*.db
+*.db-shm
+*.db-wal
+**/.drizzle-gen.db
+frontend/.drizzle-gen.db
+
 # Video Files
 backend/uploads/*.mp4
 backend/uploads/*.vtt

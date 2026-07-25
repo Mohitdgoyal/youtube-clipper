@@ -54,7 +54,6 @@ export function waitForJob(
 
     es.onerror = () => {
       if (settled) return;
-      // Allow EventSource's built-in reconnect for a short window
       if (es.readyState === EventSource.CONNECTING) {
         reconnects += 1;
         if (Date.now() - openedAt < MAX_AUTO_RECONNECT_MS && reconnects < 5) {
@@ -64,7 +63,6 @@ export function waitForJob(
       if (es.readyState !== EventSource.CLOSED && es.readyState !== EventSource.CONNECTING) {
         return;
       }
-      // Stream dead — fall back to backoff polling
       settle(() => {
         pollForJob(id, onUpdate).then(resolve, reject);
       });
@@ -78,7 +76,7 @@ async function pollForJob(
 ): Promise<JobStatusEvent> {
   let delay = 1000;
   for (;;) {
-    await new Promise((r) => setTimeout(r, delay));
+    // Poll immediately first, then backoff between attempts
     const res = await fetch(`/api/clip/${id}`);
     if (!res.ok) {
       throw new Error("Failed to fetch job status");
@@ -89,7 +87,7 @@ async function pollForJob(
     if (data.status === "error") {
       throw new Error(data.error || "Processing failed");
     }
-    // Exponential backoff up to 5s
+    await new Promise((r) => setTimeout(r, delay));
     delay = Math.min(delay * 2, 5000);
   }
 }
