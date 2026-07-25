@@ -8,12 +8,14 @@ import ClipForm from './ClipForm';
 // Mock Lucide icons
 vi.mock('lucide-react', () => ({
     Loader2: () => <div data-testid="loader">Loader</div>,
-    ArrowDown: () => <div data-testid="arrow-down">Arrow</div>,
     ChevronLeft: () => <span>&lt;</span>,
     ChevronRight: () => <span>&gt;</span>,
     ChevronsLeft: () => <span>&lt;&lt;</span>,
     ChevronsRight: () => <span>&gt;&gt;</span>,
     ArrowRight: () => <span>-&gt;</span>,
+    Scissors: () => <span>Scissors</span>,
+    Link2: () => <span>Link</span>,
+    ChevronDown: () => <span>v</span>,
 }));
 
 // Mock framer-motion/motion
@@ -65,6 +67,6 @@ describe('ClipForm Smoke Test', () => {
 
     it('renders correctly', () => {
         render(<ClipForm {...defaultProps} />);
-        expect(screen.getByPlaceholderText('Paste video url here...')).toBeTruthy();
+        expect(screen.getByPlaceholderText('Paste a YouTube link…')).toBeTruthy();
     });
 });

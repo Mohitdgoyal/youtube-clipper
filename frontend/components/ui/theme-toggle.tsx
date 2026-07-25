@@ -19,7 +19,7 @@ export function ThemeToggle() {
 
     if (!mounted) {
         return (
-            <Button variant="ghost" size="icon" className="rounded-xl">
+            <Button variant="ghost" size="icon" className="rounded-2xl">
                 <Sun className="h-5 w-5" />
             </Button>
         );
@@ -29,7 +29,7 @@ export function ThemeToggle() {
         <Button
             variant="ghost"
             size="icon"
-            className="rounded-xl"
+            className="rounded-2xl text-muted-foreground hover:text-foreground"
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
         >
             {theme === "dark" ? (

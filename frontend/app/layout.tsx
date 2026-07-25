@@ -1,47 +1,53 @@
 import type { Metadata } from "next";
-import { Host_Grotesk } from "next/font/google";
+import { Outfit, Fraunces } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "sonner";
 import { GradientBackground } from "@/components/GradientBackground";
-import { Analytics } from "@vercel/analytics/next"
+import { Analytics } from "@vercel/analytics/next";
 
-const font = Host_Grotesk({
+const sans = Outfit({
   subsets: ["latin"],
+  variable: "--font-outfit",
+});
+
+const display = Fraunces({
+  subsets: ["latin"],
+  variable: "--font-fraunces",
 });
 
 export const metadata: Metadata = {
-  title: "Clippa - Clean & Fast Video Clipper | HD YouTube Downloads",
+  title: "Clippa — Fast YouTube Clipper",
   description:
-    "Premium YouTube video clipper with zero ads. Download & clip HD videos with precise timestamps. Simple pricing, maximum quality. 📼",
+    "Clippa is a clean YouTube clipper: paste a link, mark start and end, download an HD clip. No ads.",
   keywords:
-    "video clipper, youtube downloader, HD video clips, video trimmer, youtube clips, clippa, clippa.in, youtube clipper, youtube video downloader, youtube video clipper, youtube video cutter, youtube video trimmer, youtube video editor, youtube video editor online, youtube video editor free, youtube video editor pro, youtube video editor premium, youtube video editor premium free, youtube video editor premium free download, youtube video editor premium free download online, youtube video editor premium free download online free, youtube video editor premium free download online free download, youtube video editor premium free download online free download free, youtube video editor premium free download online free download free download, ad free, premium",
+    "video clipper, youtube downloader, HD video clips, video trimmer, youtube clips, clippa, clippa.in, youtube clipper",
   icons: {
-    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📼</text></svg>",
+    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23e11d48'/><path d='M38 28v44l36-22z' fill='white'/></svg>",
     shortcut:
-      "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📼</text></svg>",
+      "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23e11d48'/><path d='M38 28v44l36-22z' fill='white'/></svg>",
   },
   openGraph: {
     url: "https://clippa.in/",
     type: "website",
     locale: "en_US",
     siteName: "Clippa",
-    title: "Clippa - Clean & Fast Video Clipper | HD YouTube Downloads",
+    title: "Clippa — Fast YouTube Clipper",
     description:
-      "Premium YouTube video clipper with zero ads. Download & clip HD videos with precise timestamps. Simple pricing, maximum quality.",
+      "Paste a YouTube link, mark the moment, download a clean HD clip. No ads.",
   },
   other: {
     "twitter:card": "summary_large_image",
     "twitter:url": "https://clippa.in/",
     "twitter:domain": "clippa.in",
-    "twitter:title": "Clippa - Clean & Fast Video Clipper",
+    "twitter:title": "Clippa — Fast YouTube Clipper",
     "twitter:description":
-      "Premium YouTube video clipper with zero ads. Download & clip HD videos with precise timestamps.",
+      "Paste a YouTube link, mark the moment, download a clean HD clip. No ads.",
     "og:url": "https://clippa.in/",
     "og:type": "website",
-    "og:title": "Clippa - Clean & Fast Video Clipper | HD YouTube Downloads",
+    "og:title": "Clippa — Fast YouTube Clipper",
     "og:description":
-      "Premium YouTube video clipper with zero ads. Download & clip HD videos with precise timestamps. Simple pricing, maximum quality.",
+      "Paste a YouTube link, mark the moment, download a clean HD clip. No ads.",
   },
   robots: {
     index: true,
@@ -64,17 +70,22 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${font.className} antialiased min-h-screen`}>
+      <body className={`${sans.variable} ${display.variable} ${sans.className} min-h-screen`}>
         <ThemeProvider
           attribute="class"
-          defaultTheme="dark"
-          enableSystem={false}
+          defaultTheme="light"
+          enableSystem
           disableTransitionOnChange
         >
           <GradientBackground />
           {children}
           <Analytics />
-          <Toaster />
+          <Toaster
+            position="top-center"
+            toastOptions={{
+              className: "surface-panel font-sans",
+            }}
+          />
         </ThemeProvider>
       </body>
     </html>

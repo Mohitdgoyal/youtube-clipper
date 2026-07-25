@@ -27,12 +27,12 @@ vi.mock('react-youtube', () => ({
 vi.mock('@/lib/utils', () => ({
     getVideoId: () => 'test-video-id',
     timeToSeconds: (str: string) => {
-        if (str === '00:00:10') return 10;
+        if (str.startsWith('00:00:10')) return 10;
         return 0;
     },
     secondsToTime: (sec: number) => {
-        if (sec === 10) return '00:00:10';
-        return '00:00:00';
+        if (Math.abs(sec - 10) < 0.001) return '00:00:10.000';
+        return '00:00:00.000';
     },
     cn: (...args: any[]) => args.join(' '),
 }));
@@ -88,22 +88,22 @@ describe('VideoPreview', () => {
 
     it('renders player and timeline', async () => {
         render(<VideoPreview {...defaultProps} />);
-        expect(screen.getByTestId('youtube-player')).toBeTruthy();
+        expect(await screen.findByTestId('youtube-player')).toBeTruthy();
         expect(await screen.findByTestId('timeline-slider')).toBeTruthy();
         expect(screen.getByTestId('shortcuts-info')).toBeTruthy();
     });
 
     it('buttons trigger set start/end', async () => {
         render(<VideoPreview {...defaultProps} />);
+        await screen.findByTestId('youtube-player');
+        // Allow onReady mock (setTimeout 0) to attach playerRef
+        await new Promise((r) => setTimeout(r, 10));
+
         const buttons = await screen.findAllByRole('button');
-        // We have "Set Start (I)" and "Set End (O)"
-        const startBtn = buttons.find(b => b.textContent?.includes('Set Start'));
-        const endBtn = buttons.find(b => b.textContent?.includes('Set End'));
+        const startBtn = buttons.find(b => b.textContent?.toLowerCase().includes('set start'));
+        const endBtn = buttons.find(b => b.textContent?.toLowerCase().includes('set end'));
 
         if (startBtn) fireEvent.click(startBtn);
-        // We expect formatSeconds(10) -> but mocked logic needs to match
-        // In this mock test we just verify it doesn't crash, 
-        // verifying exact calls is harder with component-internal refs.
         expect(defaultProps.onSetStartTime).toHaveBeenCalled();
 
         if (endBtn) fireEvent.click(endBtn);

@@ -1,18 +1,50 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
-
+import Link from "next/link";
 import { motion } from "motion/react";
 import { toast } from "sonner";
 import VideoPreview from "@/components/editor/VideoPreview";
 import ClipForm from "@/components/editor/ClipForm";
 import DownloadStatus from "@/components/editor/DownloadStatus";
 import PingBackend from "@/components/ping-backend";
-import { getVideoId } from "@/lib/utils";
+import { getVideoId, timeToSeconds } from "@/lib/utils";
 import { waitForJob } from "@/lib/job-events";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 const SESSION_USER = { id: "personal-user", name: "Personal User" };
+
+async function triggerDownload(filename: string, signedUrl: string | null | undefined, jobId: string) {
+  const proxyHref = `/api/clip/${jobId}/download?filename=${encodeURIComponent(filename)}`;
+
+  if (signedUrl) {
+    try {
+      const res = await fetch(signedUrl);
+      if (res.ok) {
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = objectUrl;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
+    } catch {
+      // fall through to same-origin proxy
+    }
+  }
+
+  const anchor = document.createElement("a");
+  anchor.href = proxyHref;
+  anchor.download = filename;
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+}
 
 export default function Editor() {
   const searchParams = useSearchParams();
@@ -33,14 +65,24 @@ export default function Editor() {
   const [stage, setStage] = useState("");
   const progressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const clearProgressTimer = useCallback(() => {
+    if (progressTimer.current) {
+      clearTimeout(progressTimer.current);
+      progressTimer.current = null;
+    }
+  }, []);
+
   const onJobProgress = useCallback((data: { stage?: string | null; progress?: number; status?: string }) => {
     setStage(data.stage || "processing");
     const next = Number(data.status === "ready" ? 100 : (data.progress || 0));
-    if (progressTimer.current) clearTimeout(progressTimer.current);
+    clearProgressTimer();
     progressTimer.current = setTimeout(() => setProgress(next), 150);
-  }, []);
+  }, [clearProgressTimer]);
 
-  // Debounced combined video info fetch (400ms) with abort on URL change
+  useEffect(() => {
+    return () => clearProgressTimer();
+  }, [clearProgressTimer]);
+
   useEffect(() => {
     const videoId = getVideoId(url);
     if (!videoId) {
@@ -70,11 +112,17 @@ export default function Editor() {
           const data = await res.json();
           setMetadata({ title: data.title });
           setFormats(data.formats || []);
-          if (data.formats?.length > 0) setSelectedFormat(data.formats[0].format_id);
+          // Prefer "Best available" — specific itags (e.g. 299) often 403/hang with section downloads
+          setSelectedFormat("");
+        } else {
+          toast.error("Could not load video info. Check the URL and try again.");
+          setFormats([]);
+          setSelectedFormat("");
         }
       } catch (error) {
         if ((error as Error).name === "AbortError") return;
         console.error("Error fetching metadata:", error);
+        toast.error("Could not load video info.");
       } finally {
         if (!controller.signal.aborted) setIsMetadataLoading(false);
       }
@@ -104,8 +152,6 @@ export default function Editor() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setProgress(0);
 
     const jobsToProcess = isBulk
       ? bulkTimestamps.split('\n').filter(line => line.includes('-')).map(line => {
@@ -116,12 +162,26 @@ export default function Editor() {
 
     if (jobsToProcess.length === 0) {
       toast.error("No valid timestamps found");
-      setLoading(false);
       return;
     }
 
+    for (const job of jobsToProcess) {
+      if (timeToSeconds(job.end) <= timeToSeconds(job.start)) {
+        toast.error("End time must be after start time");
+        return;
+      }
+    }
+
+    setLoading(true);
+    clearProgressTimer();
+    setProgress(0);
+    setStage("queued");
+
     try {
       for (const job of jobsToProcess) {
+        clearProgressTimer();
+        setProgress(0);
+        setStage("queued");
         toast.info(`Processing clip: ${job.start} to ${job.end}`);
 
         const kickoff = await fetch("/api/clip", {
@@ -154,80 +214,86 @@ export default function Editor() {
 
         const ready = await waitForJob(id, onJobProgress);
 
-        // Prefer signed URL from SSE/status (skips Next→backend status hop)
         const safeTitle = (metadata.title || "clip").replace(/[\\/:"*?<>|]/g, "_");
         const filename = `${safeTitle} - ${job.start.replace(/:/g, '.')}-${job.end.replace(/:/g, '.')}.mp4`;
-        let downloadHref = `/api/clip/${id}/download?filename=${encodeURIComponent(filename)}`;
-        if (ready.url) {
-          try {
-            const signed = new URL(ready.url);
-            signed.searchParams.set("download", filename);
-            downloadHref = signed.toString();
-          } catch {
-            // keep proxy fallback
-          }
-        }
-        const anchor = document.createElement("a");
-        anchor.href = downloadHref;
-        anchor.download = filename;
-        anchor.rel = "noopener";
-        document.body.appendChild(anchor);
-        anchor.click();
-        document.body.removeChild(anchor);
+        await triggerDownload(filename, ready.url, id);
 
         await fetch("/api/user/download-count", { method: "POST" });
         setDownloadCount(prev => prev + 1);
-        // File cleanup is scheduled server-side after signed URL TTL (avoids racing slow downloads)
 
         if (jobsToProcess.length > 1) {
           await new Promise((r) => setTimeout(r, 500));
         }
       }
-      toast.success("All bangers clipped successfully!");
+      toast.success("Clip ready — download started");
     } catch (err: unknown) {
       console.error(err);
-      toast.error(err instanceof Error ? err.message : "Failed to clip banger");
+      toast.error(err instanceof Error ? err.message : "Failed to create clip");
     } finally {
+      clearProgressTimer();
       setLoading(false);
       setProgress(0);
+      setStage("");
     }
   };
 
   return (
-    <main className="flex flex-col w-full h-full min-h-screen p-4 gap-4 max-w-3xl mx-auto items-center justify-center">
+    <main className="relative flex min-h-screen w-full flex-col">
       <PingBackend active={loading} />
-      <nav className="flex flex-col w-full gap-4 fixed top-0 left-0 right-0 z-20">
-        <div className="flex justify-between items-center p-4">
-          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="font-medium rounded-full border py-2 bg-card px-4">
-            👋 Welcome back!
-          </motion.div>
-          <ThemeToggle />
-        </div>
-      </nav>
 
-      <section className="flex flex-col w-full gap-4 max-w-xl mx-auto">
-        <VideoPreview
-          isLoading={isMetadataLoading}
-          title={metadata.title}
-          url={url}
-          startTime={startTime}
-          endTime={endTime}
-          onSetStartTime={setStartTime}
-          onSetEndTime={setEndTime}
-        />
-        <ClipForm
-          url={url} setUrl={setUrl}
-          startTime={startTime} setStartTime={setStartTime}
-          endTime={endTime} setEndTime={setEndTime}
-          addSubs={addSubs} setAddSubs={setAddSubs}
-          loading={loading} handleSubmit={handleSubmit}
-          formats={formats} selectedFormat={selectedFormat} setSelectedFormat={setSelectedFormat}
-          isBulk={isBulk} setIsBulk={setIsBulk} bulkTimestamps={bulkTimestamps} setBulkTimestamps={setBulkTimestamps}
-          progress={progress}
-          stage={stage}
-        />
-        <DownloadStatus count={downloadCount} />
-      </section>
+      <header className="sticky top-0 z-30 border-b border-border/60 bg-background/70 backdrop-blur-xl">
+        <div className="mx-auto flex h-14 w-full max-w-3xl items-center justify-between px-4 sm:px-6">
+          <Link href="/" className="group flex items-baseline gap-2">
+            <motion.span
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="font-display text-2xl font-semibold tracking-tight text-foreground"
+            >
+              Clippa
+            </motion.span>
+            <span className="hidden text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground sm:inline">
+              studio
+            </span>
+          </Link>
+          <div className="flex items-center gap-1">
+            <ThemeToggle />
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-8 px-4 py-10 sm:px-6 sm:py-14">
+        <section className="mx-auto flex w-full max-w-xl flex-col gap-6">
+          <VideoPreview
+            isLoading={isMetadataLoading}
+            title={metadata.title}
+            url={url}
+            startTime={startTime}
+            endTime={endTime}
+            onSetStartTime={setStartTime}
+            onSetEndTime={setEndTime}
+          />
+          <ClipForm
+            url={url} setUrl={setUrl}
+            startTime={startTime} setStartTime={setStartTime}
+            endTime={endTime} setEndTime={setEndTime}
+            addSubs={addSubs} setAddSubs={setAddSubs}
+            loading={loading} handleSubmit={handleSubmit}
+            formats={formats} selectedFormat={selectedFormat} setSelectedFormat={setSelectedFormat}
+            isBulk={isBulk} setIsBulk={setIsBulk} bulkTimestamps={bulkTimestamps} setBulkTimestamps={setBulkTimestamps}
+            progress={progress}
+            stage={stage || undefined}
+          />
+          <DownloadStatus count={downloadCount} />
+        </section>
+      </div>
+
+      <footer className="mx-auto flex w-full max-w-3xl items-center justify-between px-4 pb-8 text-xs text-muted-foreground sm:px-6">
+        <p>Precise YouTube clips. No ads.</p>
+        <nav className="flex gap-4">
+          <Link href="/privacy" className="transition-colors hover:text-foreground">Privacy</Link>
+          <Link href="/terms" className="transition-colors hover:text-foreground">Terms</Link>
+        </nav>
+      </footer>
     </main>
   );
 }

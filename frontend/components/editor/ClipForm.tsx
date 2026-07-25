@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, ArrowDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowRight } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowRight, Scissors, Link2, ChevronDown } from "lucide-react";
 import { timeToSeconds, secondsToTime } from "@/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { Progress } from "@/components/ui/progress";
@@ -30,41 +30,109 @@ interface ClipFormProps {
     setBulkTimestamps: (ts: string) => void;
 }
 
+function TimeField({
+    id,
+    label,
+    value,
+    onChange,
+    required,
+}: {
+    id: string;
+    label: string;
+    value: string;
+    onChange: (v: string) => void;
+    required?: boolean;
+}) {
+    return (
+        <div className="flex w-full flex-col gap-2">
+            <Label htmlFor={id} className="text-xs font-medium text-muted-foreground">
+                {label}
+            </Label>
+            <div className="flex items-center gap-0.5 rounded-2xl border border-border/80 bg-muted/40 p-1">
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 rounded-xl text-muted-foreground hover:bg-background"
+                    onClick={() => onChange(secondsToTime(Math.max(0, timeToSeconds(value) - 1)))}
+                    title="-1s"
+                >
+                    <ChevronsLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="hidden h-8 w-8 rounded-xl text-muted-foreground hover:bg-background sm:flex"
+                    onClick={() => onChange(secondsToTime(Math.max(0, timeToSeconds(value) - 0.05)))}
+                    title="-0.05s"
+                >
+                    <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Input
+                    type="text"
+                    id={id}
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                    placeholder="00:00:00"
+                    required={required}
+                    className="h-10 border-none bg-transparent px-0 text-center font-mono text-sm shadow-none focus-visible:ring-0"
+                />
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="hidden h-8 w-8 rounded-xl text-muted-foreground hover:bg-background sm:flex"
+                    onClick={() => onChange(secondsToTime(timeToSeconds(value) + 0.05))}
+                    title="+0.05s"
+                >
+                    <ChevronRight className="h-4 w-4" />
+                </Button>
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 rounded-xl text-muted-foreground hover:bg-background"
+                    onClick={() => onChange(secondsToTime(timeToSeconds(value) + 1))}
+                    title="+1s"
+                >
+                    <ChevronsRight className="h-4 w-4" />
+                </Button>
+            </div>
+        </div>
+    );
+}
+
 export default function ClipForm({
     url, setUrl, startTime, setStartTime, endTime, setEndTime,
     addSubs, setAddSubs, loading, progress = 0, stage = "Processing", handleSubmit,
     formats, selectedFormat, setSelectedFormat,
-
     isBulk, setIsBulk, bulkTimestamps, setBulkTimestamps
 }: ClipFormProps) {
     return (
         <motion.form
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
+            transition={{ duration: 0.25, ease: "easeOut" }}
             onSubmit={handleSubmit}
-            className="flex flex-col gap-10 border p-4 bg-card rounded-3xl"
-            style={{ willChange: 'opacity, transform' }}
+            className="surface-panel flex flex-col gap-6 rounded-3xl p-5 sm:p-6"
         >
-            <div className="flex flex-col gap-4 w-full">
-                <div className="flex items-center gap-2 w-full">
+            <div className="flex flex-col gap-3">
+                <Label htmlFor="url" className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                    YouTube URL
+                </Label>
+                <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-background/70 px-3 py-2 transition-colors focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/15">
+                    <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <input
                         type="text"
                         id="url"
-                        placeholder="Paste video url here..."
+                        placeholder="Paste a YouTube link…"
                         value={url}
                         onChange={(e) => setUrl(e.target.value)}
                         required
-                        className="bg-transparent border-none outline-none w-full px-2"
+                        className="w-full bg-transparent px-1 py-2 text-sm outline-none placeholder:text-muted-foreground/70"
                     />
-                    <Button type="submit" size="icon" disabled={loading} className="rounded-xl shrink-0">
-                        {loading ? (
-                            <Loader2 className="w-6 h-6 animate-spin" />
-                        ) : (
-                            <ArrowDown className="w-6 h-6" />
-                        )}
-                    </Button>
                 </div>
 
                 <AnimatePresence>
@@ -74,208 +142,89 @@ export default function ClipForm({
                             animate={{ height: "auto", opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
                             transition={{ duration: 0.15, ease: "easeOut" }}
-                            className="w-full px-2 py-4 bg-muted/20 rounded-2xl border border-primary/20"
+                            className="overflow-hidden"
                         >
-                            <div className="flex justify-between items-center mb-3">
-                                <span className="text-sm font-semibold capitalize bg-primary/10 text-primary px-3 py-1 rounded-full animate-pulse">
-                                    {stage}...
-                                </span>
-                                <span className="text-sm font-bold text-primary">{progress}%</span>
+                            <div className="rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3">
+                                <div className="mb-2 flex items-center justify-between gap-3">
+                                    <span className="text-sm font-medium capitalize text-primary">
+                                        {stage}…
+                                    </span>
+                                    <span className="font-mono text-sm font-semibold tabular-nums text-primary">
+                                        {progress}%
+                                    </span>
+                                </div>
+                                <Progress value={progress} className="h-2" />
                             </div>
-                            <Progress value={progress} className="h-3 rounded-full" />
                         </motion.div>
                     )}
                 </AnimatePresence>
             </div>
 
-            <div className="flex flex-col gap-6 w-full">
-                <div className="flex items-center justify-between px-1">
-                    <Label className="text-sm font-medium">Bulk Mode</Label>
+            <div className="flex flex-col gap-5">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <p className="text-sm font-medium">Bulk mode</p>
+                        <p className="text-xs text-muted-foreground">Clip multiple ranges at once</p>
+                    </div>
                     <Switch checked={isBulk} onCheckedChange={setIsBulk} />
                 </div>
 
                 {isBulk ? (
-                    <div className="flex flex-col gap-2 w-full">
-                        <Label htmlFor="bulkTimestamps" className="text-xs text-muted-foreground mb-1">
-                            Enter ranges (e.g., 00:01:00-00:02:00) one per line
+                    <div className="flex w-full flex-col gap-2">
+                        <Label htmlFor="bulkTimestamps" className="text-xs text-muted-foreground">
+                            One range per line (start-end)
                         </Label>
                         <textarea
                             id="bulkTimestamps"
                             value={bulkTimestamps}
                             onChange={(e) => setBulkTimestamps(e.target.value)}
                             placeholder={"00:01:00-00:02:00\n00:05:30-00:06:15"}
-                            className="w-full bg-background border rounded-2xl p-4 min-h-[120px] font-mono text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                            className="min-h-[120px] w-full rounded-2xl border border-border/80 bg-background/70 p-4 font-mono text-sm outline-none transition-shadow focus:ring-2 focus:ring-primary/20"
                         />
                     </div>
                 ) : (
-                    <div className="flex gap-4 w-full items-end">
-                        <div className="flex flex-col gap-2 w-full">
-                            <Label htmlFor="startTime" className="text-xs font-medium text-muted-foreground ml-1">Start Time</Label>
-                            <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-2xl border">
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground"
-                                    onClick={() => {
-                                        const s = timeToSeconds(startTime);
-                                        setStartTime(secondsToTime(Math.max(0, s - 1)));
-                                    }}
-                                    title="-1s"
-                                >
-                                    <ChevronsLeft className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground hidden sm:flex"
-                                    onClick={() => {
-                                        const s = timeToSeconds(startTime);
-                                        setStartTime(secondsToTime(Math.max(0, s - 0.05)));
-                                    }}
-                                    title="-0.05s"
-                                >
-                                    <ChevronLeft className="w-4 h-4" />
-                                </Button>
-
-                                <Input
-                                    type="text"
-                                    id="startTime"
-                                    value={startTime}
-                                    onChange={(e) => setStartTime(e.target.value)}
-                                    // pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}"
-                                    placeholder="00:00:00"
-                                    required={!isBulk}
-                                    className="font-mono text-center text-sm h-10 border-none shadow-none bg-transparent focus-visible:ring-0 px-0"
-                                />
-
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground hidden sm:flex"
-                                    onClick={() => {
-                                        const s = timeToSeconds(startTime);
-                                        setStartTime(secondsToTime(s + 0.05));
-                                    }}
-                                    title="+0.05s"
-                                >
-                                    <ChevronRight className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground"
-                                    onClick={() => {
-                                        const s = timeToSeconds(startTime);
-                                        setStartTime(secondsToTime(s + 1));
-                                    }}
-                                    title="+1s"
-                                >
-                                    <ChevronsRight className="w-4 h-4" />
-                                </Button>
-                            </div>
+                    <div className="flex w-full items-end gap-3">
+                        <TimeField
+                            id="startTime"
+                            label="Start"
+                            value={startTime}
+                            onChange={setStartTime}
+                            required={!isBulk}
+                        />
+                        <div className="hidden pb-3 text-muted-foreground/40 sm:block">
+                            <ArrowRight className="h-4 w-4" />
                         </div>
-
-                        <div className="pb-4 text-muted-foreground/30">
-                            <ArrowRight className="w-5 h-5" />
-                        </div>
-
-                        <div className="flex flex-col gap-2 w-full">
-                            <Label htmlFor="endTime" className="text-xs font-medium text-muted-foreground ml-1">End Time</Label>
-                            <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-2xl border">
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground"
-                                    onClick={() => {
-                                        const s = timeToSeconds(endTime);
-                                        setEndTime(secondsToTime(Math.max(0, s - 1)));
-                                    }}
-                                    title="-1s"
-                                >
-                                    <ChevronsLeft className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground hidden sm:flex"
-                                    onClick={() => {
-                                        const s = timeToSeconds(endTime);
-                                        setEndTime(secondsToTime(Math.max(0, s - 0.05)));
-                                    }}
-                                    title="-0.05s"
-                                >
-                                    <ChevronLeft className="w-4 h-4" />
-                                </Button>
-
-                                <Input
-                                    type="text"
-                                    id="endTime"
-                                    value={endTime}
-                                    onChange={(e) => setEndTime(e.target.value)}
-                                    // pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}"
-                                    placeholder="00:00:00"
-                                    required={!isBulk}
-                                    className="font-mono text-center text-sm h-10 border-none shadow-none bg-transparent focus-visible:ring-0 px-0"
-                                />
-
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground hidden sm:flex"
-                                    onClick={() => {
-                                        const s = timeToSeconds(endTime);
-                                        setEndTime(secondsToTime(s + 0.05));
-                                    }}
-                                    title="+0.05s"
-                                >
-                                    <ChevronRight className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 hover:bg-background rounded-xl text-muted-foreground"
-                                    onClick={() => {
-                                        const s = timeToSeconds(endTime);
-                                        setEndTime(secondsToTime(s + 1));
-                                    }}
-                                    title="+1s"
-                                >
-                                    <ChevronsRight className="w-4 h-4" />
-                                </Button>
-                            </div>
-                        </div>
+                        <TimeField
+                            id="endTime"
+                            label="End"
+                            value={endTime}
+                            onChange={setEndTime}
+                            required={!isBulk}
+                        />
                     </div>
                 )}
 
-
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+                <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="flex flex-col gap-2">
-                        <Label htmlFor="quality">Video Quality</Label>
-                        <div className="relative group">
+                        <Label htmlFor="quality" className="text-xs font-medium text-muted-foreground">
+                            Quality
+                        </Label>
+                        <div className="relative">
                             <select
                                 id="quality"
                                 value={selectedFormat}
                                 onChange={(e) => setSelectedFormat(e.target.value)}
-                                className="w-full bg-background border rounded-2xl p-2.5 h-12 appearance-none pr-10 focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
+                                className="h-12 w-full cursor-pointer appearance-none rounded-2xl border border-border/80 bg-background/70 px-4 pr-10 text-sm outline-none transition-shadow focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
                                 disabled={formats.length === 0}
                             >
                                 {formats.length === 0 ? (
-                                    <option value="">Fetching formats...</option>
+                                    <option value="">Waiting for video…</option>
                                 ) : (
                                     <>
                                         <optgroup label="Optimized">
                                             <option value="">Best available</option>
                                         </optgroup>
-                                        <optgroup label="Specific Resolutions">
+                                        <optgroup label="Resolutions">
                                             {formats.map((f) => (
                                                 <option key={f.format_id} value={f.format_id}>
                                                     {f.label}
@@ -285,21 +234,40 @@ export default function ClipForm({
                                     </>
                                 )}
                             </select>
-                            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
-                                <ArrowDown className="w-4 h-4" />
-                            </div>
+                            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         </div>
                     </div>
 
                     <div className="flex flex-col gap-2">
-                        <Label htmlFor="subtitles-switch">Subtitles</Label>
-                        <div className="flex items-center justify-between bg-muted/30 border rounded-2xl px-4 h-12">
-                            <span className="text-xs text-muted-foreground font-medium">English (Auto)</span>
+                        <Label htmlFor="subtitles-switch" className="text-xs font-medium text-muted-foreground">
+                            Subtitles
+                        </Label>
+                        <div className="flex h-12 items-center justify-between rounded-2xl border border-border/80 bg-muted/30 px-4">
+                            <span className="text-sm text-muted-foreground">English (auto)</span>
                             <Switch id="subtitles-switch" checked={addSubs} onCheckedChange={setAddSubs} />
                         </div>
                     </div>
                 </div>
             </div>
+
+            <Button
+                type="submit"
+                disabled={loading}
+                size="lg"
+                className="h-12 w-full rounded-2xl text-base font-semibold shadow-sm transition-transform active:scale-[0.99]"
+            >
+                {loading ? (
+                    <>
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                        Clipping…
+                    </>
+                ) : (
+                    <>
+                        <Scissors className="h-5 w-5" />
+                        Clip video
+                    </>
+                )}
+            </Button>
         </motion.form>
     );
 }
