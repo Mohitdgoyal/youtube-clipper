@@ -61,6 +61,8 @@ $env:FRONTEND_URL='http://localhost:3000'; bun run smoke:clip
 ---
 
 ## Notes
-- Quality default is **Best available** (safest for `--download-sections`).
-- Aria2 is opt-in via `USE_ARIA2C=1`.
+- Clip download tries **quality clients first** (short stall), then **reliable web clients** with progressive mp4 fallback.
+- Some videos only expose **360p** without cookies (YouTube PO-token gating). For 720p/1080p: put Netscape cookies in `backend/cookies.txt` or set `COOKIES_FROM_BROWSER=chrome`.
+- Never enable `--force-keyframes-at-cuts` for sections (causes hangs).
+- Aria2 is opt-in via `USE_ARIA2C=1` (usually worse for sections).
 - Railway start uses Bun (`bun dist/index.js`) with software x264 (`DISABLE_HW_ENCODE=1`).

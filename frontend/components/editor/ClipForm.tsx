@@ -236,6 +236,11 @@ export default function ClipForm({
                             </select>
                             <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         </div>
+                        {formats.length > 0 && !formats.some((f) => /^(720|1080|1440|2160)p/.test(f.label)) && (
+                            <p className="text-[11px] leading-snug text-muted-foreground">
+                                Only low-res formats available for this video without cookies.
+                            </p>
+                        )}
                     </div>
 
                     <div className="flex flex-col gap-2">

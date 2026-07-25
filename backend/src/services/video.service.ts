@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+import { spawn, execFile } from "child_process";
 import path from "path";
 import fs from "fs";
 import { UPLOADS_DIR, BUFFER_SIZE, ARIA2C_CONNECTIONS, CONCURRENT_FRAGMENTS } from "../constants";
@@ -9,26 +9,20 @@ import { needsPreciseCut } from "../utils/time-precision";
 import {
     buildClipYtDlpArgs,
     useAria2cDownloader,
-    SAFE_SECTION_FORMAT,
-    FALLBACK_SECTION_FORMAT,
-    isYoutubeForbiddenError,
+    buildClipAttempts,
+    isRetriableYtDlpError,
+    sanitizeYtDlpError,
+    type ClipAttempt,
 } from "../utils/yt-dlp-args";
 
 /** Lead-in so stream-copy trim / subtitle burn-in can hit the exact start. */
 const SECTION_PAD_SEC = 2;
 
-/** Abort if the .part file does not grow for this long (hung googlevideo read). */
-const STALL_TIMEOUT_MS = Number(process.env.YTDLP_STALL_TIMEOUT_MS || 45_000);
-
 export type ClipDownloadResult = {
     outputPath: string;
-    /** Absolute source time where the downloaded section begins (for VTT shift). */
     sectionStartTime: string;
-    /** Seconds into the downloaded file where the user cut starts. */
     cutStartSec: number;
-    /** Exact output duration in seconds. */
     durationSec: number;
-    /** True when caller must run ffmpeg trim (stream-copy or burn-in). */
     needsPostProcess: boolean;
 };
 
@@ -41,9 +35,7 @@ export async function adjustSubtitleTimestamps(inputPath: string, outputPath: st
     const adjustedContent = content.replace(timestampRegex, (match, start, end) => {
         const startSec = timeToSeconds(start) - startSeconds;
         const endSec = timeToSeconds(end) - startSeconds;
-
         if (startSec < 0) return match;
-
         return `${secondsToTime(startSec)} --> ${secondsToTime(endSec)}`;
     });
 
@@ -69,7 +61,7 @@ function parseDownloadProgress(str: string, sectionDurationSec: number, onProgre
 
     const dlMatch = str.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
     if (dlMatch) {
-        onProgress(Math.round(parseFloat(dlMatch[1]) / 2));
+        onProgress(Math.min(49, Math.round(parseFloat(dlMatch[1]) / 2)));
         return;
     }
 
@@ -79,20 +71,40 @@ function parseDownloadProgress(str: string, sectionDurationSec: number, onProgre
             const seconds = parseFfmpegTimeSeconds(timeMatch[1]);
             if (seconds != null && seconds >= 0) {
                 const pct = Math.min(100, Math.round((seconds / sectionDurationSec) * 100));
-                // Cap at 49 during download so UI only hits 50 when yt-dlp exits
                 onProgress(Math.min(49, Math.round(pct / 2)));
             }
         }
     }
 }
 
-function feedYtDlpOutput(
-    chunk: string,
-    sectionDurationSec: number,
-    onProgress?: (n: number) => void
-) {
+function feedYtDlpOutput(chunk: string, sectionDurationSec: number, onProgress?: (n: number) => void) {
     for (const line of chunk.split(/\r|\n/)) {
         if (line.trim()) parseDownloadProgress(line, sectionDurationSec, onProgress);
+    }
+}
+
+function killProcessTree(pid: number | undefined) {
+    if (!pid) return;
+    if (process.platform === "win32") {
+        execFile("taskkill", ["/pid", String(pid), "/T", "/F"], () => undefined);
+        return;
+    }
+    try {
+        process.kill(-pid, "SIGTERM");
+    } catch {
+        try {
+            process.kill(pid, "SIGTERM");
+        } catch {
+            /* ignore */
+        }
+    }
+}
+
+function fileSize(p: string): number {
+    try {
+        return fs.existsSync(p) ? fs.statSync(p).size : 0;
+    } catch {
+        return 0;
     }
 }
 
@@ -104,17 +116,22 @@ function runYtDlp(
         onProgress?: (progress: number) => void;
         sectionDurationSec: number;
         outputPath: string;
+        stallMs: number;
     }
 ): Promise<string> {
-    const { signal, onProgress, sectionDurationSec, outputPath } = options;
+    const { signal, onProgress, sectionDurationSec, outputPath, stallMs } = options;
     const partPath = `${outputPath}.part`;
 
     return new Promise((resolve, reject) => {
-        const yt = spawn(ytDlpPath, ytArgs);
+        const yt = spawn(ytDlpPath, ytArgs, {
+            // New process group on Unix so we can kill children
+            detached: process.platform !== "win32",
+        });
         let stderrTail = "";
         let settled = false;
-        let lastByteCount = -1;
+        let lastByteCount = 0;
         let lastGrowthAt = Date.now();
+        let sawAnyBytes = false;
 
         const finish = (fn: () => void) => {
             if (settled) return;
@@ -127,63 +144,42 @@ function runYtDlp(
         const onChunk = (data: Buffer | string) => {
             const str = data.toString();
             stderrTail = (stderrTail + str).slice(-12_000);
-            lastGrowthAt = Date.now(); // stderr activity counts as life
+            // Progress only — do NOT reset stall timer on stderr (ffmpeg spam while hung)
             feedYtDlpOutput(str, sectionDurationSec, onProgress);
         };
 
-        // MUST drain stdout — unread pipes block yt-dlp once the buffer fills (~64 KiB)
         yt.stdout.on("data", onChunk);
         yt.stderr.on("data", onChunk);
 
-        const onAbort = () => {
-            try {
-                yt.kill("SIGTERM");
-            } catch {
-                /* ignore */
-            }
-            try {
-                yt.kill();
-            } catch {
-                /* ignore */
-            }
-        };
+        const onAbort = () => killProcessTree(yt.pid);
 
         if (signal) {
-            if (signal.aborted) {
-                onAbort();
-            } else {
-                signal.addEventListener("abort", onAbort, { once: true });
-            }
+            if (signal.aborted) onAbort();
+            else signal.addEventListener("abort", onAbort, { once: true });
         }
 
-        // Kill hung googlevideo reads (ANDROID_VR / expired URLs leave .part at 0 forever)
         const stallTimer = setInterval(() => {
             if (settled) return;
-            let size = 0;
-            try {
-                if (fs.existsSync(partPath)) size = fs.statSync(partPath).size;
-                else if (fs.existsSync(outputPath)) size = fs.statSync(outputPath).size;
-            } catch {
-                /* ignore */
-            }
-
+            const size = Math.max(fileSize(partPath), fileSize(outputPath));
             if (size > lastByteCount) {
                 lastByteCount = size;
                 lastGrowthAt = Date.now();
+                sawAnyBytes = true;
                 return;
             }
-
-            if (Date.now() - lastGrowthAt >= STALL_TIMEOUT_MS) {
+            // Grace period before first byte (extract/JS challenge), then strict file stall
+            const grace = sawAnyBytes ? stallMs : Math.max(stallMs, 35_000);
+            if (Date.now() - lastGrowthAt >= grace) {
                 onAbort();
                 finish(() =>
                     reject(
                         new Error(
-                            `yt-dlp stalled for ${Math.round(STALL_TIMEOUT_MS / 1000)}s with no file growth (likely hung googlevideo URL). Retry with Best available.`
+                            `yt-dlp stalled for ${Math.round(grace / 1000)}s with no file growth`
                         )
                     )
                 );
             }
-        }, 2000);
+        }, 1500);
         stallTimer.unref?.();
 
         yt.on("close", (code) => {
@@ -192,11 +188,8 @@ function runYtDlp(
                     reject(new Error("Aborted"));
                     return;
                 }
-                if (code === 0) {
-                    resolve(stderrTail);
-                } else {
-                    reject(new Error(`yt-dlp exited with code ${code}: ${stderrTail}`));
-                }
+                if (code === 0) resolve(stderrTail);
+                else reject(new Error(`yt-dlp exited with code ${code}: ${stderrTail}`));
             });
         });
         yt.on("error", (err) => {
@@ -225,7 +218,6 @@ export const videoService = {
         const endSec = timeToSeconds(endTime);
         const durationSec = Math.max(0.001, endSec - startSec);
 
-        // Precise cuts / subtitles: pad download, NEVER --force-keyframes (that re-encodes over HTTP).
         const precise = needsPreciseCut(startTime, endTime, subtitles);
         let sectionStartSec = startSec;
         let sectionEndSec = endSec;
@@ -241,18 +233,22 @@ export const videoService = {
         const section = `*${sectionStartTime}-${sectionEndTime}`;
         const sectionDurationSec = Math.max(0.001, sectionEndSec - sectionStartSec);
 
-        const buildArgs = (format: string) => {
-            const ytArgs = buildClipYtDlpArgs([
-                url,
-                "--download-sections", section,
-                "-o", outputPath,
-                "--merge-output-format", "mp4",
-                "--concurrent-fragments", CONCURRENT_FRAGMENTS,
-                "--buffer-size", BUFFER_SIZE,
-                "-f", format,
-            ]);
+        const buildArgs = (attempt: ClipAttempt) => {
+            const ytArgs = buildClipYtDlpArgs(
+                [
+                    url,
+                    "--download-sections", section,
+                    "-o", outputPath,
+                    "--merge-output-format", "mp4",
+                    "--concurrent-fragments", CONCURRENT_FRAGMENTS,
+                    "--buffer-size", BUFFER_SIZE,
+                    "-f", attempt.format,
+                    "--force-overwrites",
+                ],
+                attempt.playerClient
+            );
 
-            // Stream-copy section only. Do NOT add --force-keyframes-at-cuts.
+            // Never --force-keyframes-at-cuts (HTTP re-encode hangs).
 
             if (useAria2cDownloader()) {
                 const aria2cPath = resolveAria2c();
@@ -273,12 +269,6 @@ export const videoService = {
             return ytArgs;
         };
 
-        // Honor picker: empty = Best available (1080p60 H.264). Retry down on 403/stall.
-        const primaryFormat = formatId?.trim() || SAFE_SECTION_FORMAT;
-        const retryFormats = [SAFE_SECTION_FORMAT, FALLBACK_SECTION_FORMAT].filter(
-            (f, i, arr) => f !== primaryFormat && arr.indexOf(f) === i
-        );
-
         let lastReported = 0;
         const reportProgress = (p: number) => {
             const next = Math.max(0, Math.min(100, Math.round(p)));
@@ -287,40 +277,48 @@ export const videoService = {
             onProgress?.(next);
         };
 
-        const runOpts = {
-            signal,
-            onProgress: reportProgress,
-            sectionDurationSec,
-            outputPath,
-        };
-
         const wipeOutputs = async () => {
             await fs.promises.unlink(outputPath).catch(() => undefined);
             await fs.promises.unlink(`${outputPath}.part`).catch(() => undefined);
         };
 
+        const attempts = buildClipAttempts(formatId);
         reportProgress(1);
-        try {
-            await runYtDlp(ytDlpPath, buildArgs(primaryFormat), runOpts);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            const retriable =
-                isYoutubeForbiddenError(message) || /ffmpeg exited|stalled/i.test(message);
-            if (!retriable || signal?.aborted) throw err;
 
-            let lastErr: unknown = err;
-            for (const nextFormat of retryFormats) {
-                console.warn(`[yt-dlp] format failed; retrying with ${nextFormat.slice(0, 48)}…`);
-                await wipeOutputs();
-                try {
-                    await runYtDlp(ytDlpPath, buildArgs(nextFormat), runOpts);
-                    lastErr = null;
-                    break;
-                } catch (retryErr) {
-                    lastErr = retryErr;
-                }
+        let lastErr: unknown;
+        for (let i = 0; i < attempts.length; i++) {
+            const attempt = attempts[i];
+            if (signal?.aborted) throw new Error("Aborted");
+
+            await wipeOutputs();
+            console.log(`[yt-dlp] attempt ${i + 1}/${attempts.length}: ${attempt.label}`);
+
+            try {
+                await runYtDlp(ytDlpPath, buildArgs(attempt), {
+                    signal,
+                    onProgress: reportProgress,
+                    sectionDurationSec,
+                    outputPath,
+                    stallMs: attempt.stallMs,
+                });
+                lastErr = null;
+                break;
+            } catch (err) {
+                lastErr = err;
+                const message = err instanceof Error ? err.message : String(err);
+                const retriable = isRetriableYtDlpError(message) || /stalled for/i.test(message);
+                console.warn(`[yt-dlp] attempt failed: ${sanitizeYtDlpError(message)}`);
+                if (!retriable || i === attempts.length - 1) break;
             }
-            if (lastErr) throw lastErr;
+        }
+
+        if (lastErr) {
+            const message = lastErr instanceof Error ? lastErr.message : String(lastErr);
+            throw new Error(sanitizeYtDlpError(message));
+        }
+
+        if (!fs.existsSync(outputPath) || fileSize(outputPath) < 1024) {
+            throw new Error("Download finished but output file is missing or empty. Please retry.");
         }
 
         reportProgress(50);
@@ -343,14 +341,12 @@ export const videoService = {
         cutStartSec?: number,
     }) {
         const { subtitles, subPath, signal, onProgress, durationSeconds, cutStartSec = 0 } = options;
-        if (signal?.aborted) {
-            throw new Error("Aborted");
-        }
+        if (signal?.aborted) throw new Error("Aborted");
+
         const ffmpegPath = resolveFfmpeg();
         const burnSubs = !!(subtitles && subPath && fs.existsSync(subPath));
         const ffmpegArgs = ["-y", "-hwaccel", "auto"];
 
-        // Input seek for stream-copy / burn-in (avoids decoding from t=0)
         if (cutStartSec > 0) {
             ffmpegArgs.push("-ss", cutStartSec.toFixed(3));
         }
@@ -366,7 +362,6 @@ export const videoService = {
                 .replace(/:/g, "\\:")
                 .replace(/'/g, "\\'");
             const { encoder, videoArgs } = getVideoEncoder();
-
             ffmpegArgs.push(
                 "-vf", `subtitles='${escapedSub}'`,
                 "-c:v", encoder,
@@ -375,14 +370,12 @@ export const videoService = {
                 "-b:a", "128k",
             );
         } else {
-            // Stream copy trim — typically <200ms for a short clip
             ffmpegArgs.push("-c:v", "copy", "-c:a", "copy", "-threads", "0");
         }
 
         ffmpegArgs.push("-movflags", "+faststart", outputPath);
 
         const ff = spawn(ffmpegPath, ffmpegArgs);
-
         if (onProgress) onProgress(burnSubs ? 50 : 90);
 
         ff.stderr.on("data", (data) => {
@@ -398,17 +391,8 @@ export const videoService = {
             }
         });
 
-        const onAbort = () => {
-            try {
-                ff.kill();
-            } catch {
-                /* ignore */
-            }
-        };
-
-        if (signal) {
-            signal.addEventListener("abort", onAbort, { once: true });
-        }
+        const onAbort = () => killProcessTree(ff.pid);
+        if (signal) signal.addEventListener("abort", onAbort, { once: true });
 
         await new Promise<void>((resolve, reject) => {
             ff.on("close", (code) => {

@@ -62,12 +62,13 @@ Original Phase 0–4 optimizations and the O1–O5 revision are **done**. Post-r
 
 Shared args live in `backend/src/utils/yt-dlp-args.ts`:
 
-- **`--js-runtimes node`** — required for YouTube n-challenge / EJS solving (2026+)
-- **`player_client=default,-android_sdkless`** — avoids DRM-prone `tv`-only and broken Android URLs
-- **Referer** + optional **`cookies.txt`** or **`COOKIES_FROM_BROWSER`**
-- **`USE_ARIA2C=1`** — opt-in only; default downloader is safer for section clips
-- **Safe H.264 retry** on 403; ffmpeg `time=` progress for section downloads
-- **Quality default**: “Best available” (not first itag)
+- **Attempt ladder**: quality clients (`default`, short file-growth stall) → reliable web clients (no `android_vr`) → progressive `best[ext=mp4]`
+- **Stall watchdog counts file bytes only** (stderr spam must not reset the timer)
+- **Never `--force-keyframes-at-cuts`** on sections (HTTP re-encode hangs)
+- **`--js-runtimes node`** — YouTube n-challenge / EJS solving
+- **Cookies** (`backend/cookies.txt` / `COOKIES_FROM_BROWSER`) unlock higher than 360p when YouTube gates DASH
+- **`USE_ARIA2C=1`** opt-in only (usually breaks sections)
+- Process tree kill on Windows (`taskkill /T`) so ffmpeg children die with yt-dlp
 
 ### Local dev
 

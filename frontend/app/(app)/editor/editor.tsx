@@ -228,7 +228,14 @@ export default function Editor() {
       toast.success("Clip ready — download started");
     } catch (err: unknown) {
       console.error(err);
-      toast.error(err instanceof Error ? err.message : "Failed to create clip");
+      const raw = err instanceof Error ? err.message : "Failed to create clip";
+      // Prefer short actionable toasts (backend already sanitizes; strip leftover yt-dlp dumps)
+      const friendly = raw.includes("ERROR:")
+        ? raw.split("ERROR:").pop()!.trim().slice(0, 180)
+        : raw.length > 220
+          ? `${raw.slice(0, 200)}…`
+          : raw;
+      toast.error(friendly);
     } finally {
       clearProgressTimer();
       setLoading(false);
