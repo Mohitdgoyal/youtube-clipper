@@ -213,6 +213,7 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
                 sectionStartTime,
                 cutStartSec,
                 durationSec: clipDurationSec,
+                needsPostProcess,
             } = await videoService.downloadAndClip(id, {
                 url,
                 startTime,
@@ -226,8 +227,8 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
             const storagePath = `clip-${id}.mp4`;
             let publicUrl: string;
 
-            if (!subtitles) {
-                // yt-dlp already wrote the final clip — skip FFmpeg and -fast rename hop
+            if (!needsPostProcess) {
+                // Whole-second, no-subs: yt-dlp section is already the final clip
                 await publishJobUpdate(id, { stage: "processing" });
                 const finalPath = path.join(UPLOADS_DIR, storagePath);
                 if (inputPath !== finalPath && fs.existsSync(inputPath)) {
@@ -238,20 +239,20 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
                 await progressChain;
                 publicUrl = storageService.getPublicUrl(storagePath);
             } else {
+                // Precise cut and/or subtitles: pad download → ffmpeg stream-copy trim or burn-in
                 const fastPath = path.join(UPLOADS_DIR, `clip-${id}-fast.mp4`);
                 const subPath = inputPath.replace(/\.mp4$/, ".en.vtt");
-                const subtitlesExist = fs.existsSync(subPath);
+                const subtitlesExist = !!(subtitles && fs.existsSync(subPath));
 
                 if (subtitlesExist) {
                     const adjustedSubPath = path.join(UPLOADS_DIR, `clip-${id}-adjusted.vtt`);
-                    // Align VTT to the padded section file, then FFmpeg -ss/-t precise-cuts.
                     await adjustSubtitleTimestamps(subPath, adjustedSubPath, sectionStartTime);
                     await fs.promises.rename(adjustedSubPath, subPath);
                 }
 
                 await publishJobUpdate(id, { stage: "processing" });
                 await videoService.processWithFFmpeg(inputPath, fastPath, {
-                    subtitles,
+                    subtitles: subtitlesExist,
                     subPath: subtitlesExist ? subPath : undefined,
                     signal: controller.signal,
                     onProgress: updateProgress,

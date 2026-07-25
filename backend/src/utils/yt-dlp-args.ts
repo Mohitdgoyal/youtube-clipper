@@ -2,14 +2,17 @@ import fs from "fs";
 import path from "path";
 import { resolveFfmpeg } from "./binaries";
 
-/** Web-first avoids slow Android VR progressive URLs on section downloads. */
+/**
+ * Prefer web clients for --download-sections.
+ * `default` alone often picks ANDROID_VR progressive URLs that hang under ffmpeg.
+ */
 export const YT_CLIP_PLAYER_CLIENT =
-    "youtube:player_client=web,default,-android_sdkless";
+    "youtube:player_client=web,mweb,tv,default,-android_sdkless,-android_vr";
 
 export const YT_METADATA_PLAYER_CLIENT =
-    "youtube:player_client=default,-android_sdkless";
+    "youtube:player_client=web,default,-android_sdkless";
 
-/** H.264/AAC mp4 — 720p30 is the speed/reliability sweet spot for --download-sections. */
+/** H.264/AAC mp4 — 720p30 is fastest reliable section download. */
 export const SAFE_SECTION_FORMAT =
     "bv[ext=mp4][vcodec^=avc1][height<=?720][fps<=?30]+ba[ext=m4a]/best[ext=mp4][vcodec^=avc1][height<=?720]/best";
 
@@ -29,9 +32,6 @@ function appendJsRuntime(args: string[]): void {
     args.push("--js-runtimes", process.env.YTDLP_JS_RUNTIME || "node");
 }
 
-/**
- * Metadata fetch (-j): needs JS runtime on modern YouTube but skips clip-only flags.
- */
 export function buildMetadataYtDlpArgs(extra: string[] = []): string[] {
     const args: string[] = [
         "--no-playlist",
@@ -47,9 +47,6 @@ export function buildMetadataYtDlpArgs(extra: string[] = []): string[] {
     return args;
 }
 
-/**
- * Clip download (--download-sections): web-first client, no --newline (ffmpeg uses \\r progress).
- */
 export function buildClipYtDlpArgs(extra: string[] = []): string[] {
     const args: string[] = [
         "--no-playlist",
@@ -70,12 +67,12 @@ export function buildCommonYtDlpArgs(extra: string[] = []): string[] {
     return buildClipYtDlpArgs(extra);
 }
 
-/** Aria2 was always-on pre-optimization; opt-out with USE_ARIA2C=0. */
+/**
+ * Aria2 breaks ffmpeg --download-sections (signed googlevideo URLs).
+ * Keep OFF unless explicitly enabled.
+ */
 export function useAria2cDownloader(): boolean {
-    if (process.env.USE_ARIA2C === "0" || process.env.USE_ARIA2C === "false") {
-        return false;
-    }
-    return true;
+    return process.env.USE_ARIA2C === "1" || process.env.USE_ARIA2C === "true";
 }
 
 export function isYoutubeForbiddenError(stderr: string): boolean {

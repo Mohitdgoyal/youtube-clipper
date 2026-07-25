@@ -5,7 +5,7 @@ import { UPLOADS_DIR, BUFFER_SIZE, ARIA2C_CONNECTIONS, CONCURRENT_FRAGMENTS } fr
 import { timeToSeconds, secondsToTime } from "../utils/time";
 import { resolveYtDlp, resolveFfmpeg, resolveAria2c } from "../utils/binaries";
 import { getVideoEncoder } from "../utils/ffmpeg-encoder";
-import { needsForcedKeyframes } from "../utils/time-precision";
+import { needsPreciseCut } from "../utils/time-precision";
 import {
     buildClipYtDlpArgs,
     useAria2cDownloader,
@@ -13,8 +13,11 @@ import {
     isYoutubeForbiddenError,
 } from "../utils/yt-dlp-args";
 
-/** Lead-in pad so FFmpeg can re-trim to the exact user start after keyframe-aligned yt-dlp. */
-const SUBTITLE_SECTION_PAD_SEC = 2;
+/** Lead-in so stream-copy trim / subtitle burn-in can hit the exact start. */
+const SECTION_PAD_SEC = 2;
+
+/** Abort if the .part file does not grow for this long (hung googlevideo read). */
+const STALL_TIMEOUT_MS = Number(process.env.YTDLP_STALL_TIMEOUT_MS || 45_000);
 
 export type ClipDownloadResult = {
     outputPath: string;
@@ -24,13 +27,14 @@ export type ClipDownloadResult = {
     cutStartSec: number;
     /** Exact output duration in seconds. */
     durationSec: number;
+    /** True when caller must run ffmpeg trim (stream-copy or burn-in). */
+    needsPostProcess: boolean;
 };
 
 export async function adjustSubtitleTimestamps(inputPath: string, outputPath: string, startTime: string): Promise<void> {
     const startSeconds = timeToSeconds(startTime);
-    const content = await fs.promises.readFile(inputPath, 'utf-8');
+    const content = await fs.promises.readFile(inputPath, "utf-8");
 
-    // Robust regex for VTT timestamps
     const timestampRegex = /(\d{1,2}:\d{2}:\d{2}\.\d{3}|\d{2}:\d{2}\.\d{3}) --> (\d{1,2}:\d{2}:\d{2}\.\d{3}|\d{2}:\d{2}\.\d{3})/g;
 
     const adjustedContent = content.replace(timestampRegex, (match, start, end) => {
@@ -42,7 +46,7 @@ export async function adjustSubtitleTimestamps(inputPath: string, outputPath: st
         return `${secondsToTime(startSec)} --> ${secondsToTime(endSec)}`;
     });
 
-    await fs.promises.writeFile(outputPath, adjustedContent, 'utf-8');
+    await fs.promises.writeFile(outputPath, adjustedContent, "utf-8");
 }
 
 function parseFfmpegTimeSeconds(raw: string): number | null {
@@ -62,34 +66,30 @@ function parseFfmpegTimeSeconds(raw: string): number | null {
 function parseDownloadProgress(str: string, sectionDurationSec: number, onProgress?: (n: number) => void) {
     if (!onProgress) return;
 
-    // Native yt-dlp fragment progress (stdout or stderr) — maps to 0–50% overall
     const dlMatch = str.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
     if (dlMatch) {
         onProgress(Math.round(parseFloat(dlMatch[1]) / 2));
         return;
     }
 
-    // ffmpeg section mux: time= + optional speed= (speed>1 means faster than realtime)
     if (sectionDurationSec > 0) {
         const timeMatch = str.match(/time=(\d+(?:\.\d+)?|\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?)/);
         if (timeMatch) {
             const seconds = parseFfmpegTimeSeconds(timeMatch[1]);
             if (seconds != null && seconds >= 0) {
                 const pct = Math.min(100, Math.round((seconds / sectionDurationSec) * 100));
-                onProgress(Math.round(pct / 2));
+                // Cap at 49 during download so UI only hits 50 when yt-dlp exits
+                onProgress(Math.min(49, Math.round(pct / 2)));
             }
         }
     }
 }
-
-/** Wall-clock estimate removed — it caused fake 49% stalls and extra DB writes. */
 
 function feedYtDlpOutput(
     chunk: string,
     sectionDurationSec: number,
     onProgress?: (n: number) => void
 ) {
-    // ffmpeg progress is often \\r-delimited on a single line; split both separators
     for (const line of chunk.split(/\r|\n/)) {
         if (line.trim()) parseDownloadProgress(line, sectionDurationSec, onProgress);
     }
@@ -102,17 +102,31 @@ function runYtDlp(
         signal?: AbortSignal;
         onProgress?: (progress: number) => void;
         sectionDurationSec: number;
+        outputPath: string;
     }
 ): Promise<string> {
-    const { signal, onProgress, sectionDurationSec } = options;
+    const { signal, onProgress, sectionDurationSec, outputPath } = options;
+    const partPath = `${outputPath}.part`;
 
     return new Promise((resolve, reject) => {
         const yt = spawn(ytDlpPath, ytArgs);
         let stderrTail = "";
+        let settled = false;
+        let lastByteCount = -1;
+        let lastGrowthAt = Date.now();
+
+        const finish = (fn: () => void) => {
+            if (settled) return;
+            settled = true;
+            clearInterval(stallTimer);
+            if (signal) signal.removeEventListener("abort", onAbort);
+            fn();
+        };
 
         const onChunk = (data: Buffer | string) => {
             const str = data.toString();
             stderrTail = (stderrTail + str).slice(-12_000);
+            lastGrowthAt = Date.now(); // stderr activity counts as life
             feedYtDlpOutput(str, sectionDurationSec, onProgress);
         };
 
@@ -121,8 +135,11 @@ function runYtDlp(
         yt.stderr.on("data", onChunk);
 
         const onAbort = () => {
-            yt.kill("SIGTERM");
-            // Windows: ensure child ffmpeg dies with the tree
+            try {
+                yt.kill("SIGTERM");
+            } catch {
+                /* ignore */
+            }
             try {
                 yt.kill();
             } catch {
@@ -138,21 +155,54 @@ function runYtDlp(
             }
         }
 
-        yt.on("close", (code) => {
-            if (signal) signal.removeEventListener("abort", onAbort);
-            if (signal?.aborted) {
-                reject(new Error("Aborted"));
+        // Kill hung googlevideo reads (ANDROID_VR / expired URLs leave .part at 0 forever)
+        const stallTimer = setInterval(() => {
+            if (settled) return;
+            let size = 0;
+            try {
+                if (fs.existsSync(partPath)) size = fs.statSync(partPath).size;
+                else if (fs.existsSync(outputPath)) size = fs.statSync(outputPath).size;
+            } catch {
+                /* ignore */
+            }
+
+            if (size > lastByteCount) {
+                lastByteCount = size;
+                lastGrowthAt = Date.now();
                 return;
             }
-            if (code === 0) {
-                resolve(stderrTail);
-            } else {
-                reject(new Error(`yt-dlp exited with code ${code}: ${stderrTail}`));
+
+            if (Date.now() - lastGrowthAt >= STALL_TIMEOUT_MS) {
+                onAbort();
+                finish(() =>
+                    reject(
+                        new Error(
+                            `yt-dlp stalled for ${Math.round(STALL_TIMEOUT_MS / 1000)}s with no file growth (likely hung googlevideo URL). Retry with Best available.`
+                        )
+                    )
+                );
             }
+        }, 2000);
+        stallTimer.unref?.();
+
+        yt.on("close", (code) => {
+            finish(() => {
+                if (signal?.aborted) {
+                    reject(new Error("Aborted"));
+                    return;
+                }
+                if (code === 0) {
+                    resolve(stderrTail);
+                } else {
+                    reject(new Error(`yt-dlp exited with code ${code}: ${stderrTail}`));
+                }
+            });
         });
         yt.on("error", (err) => {
-            console.error("yt-dlp subprocess error:", err);
-            reject(err);
+            finish(() => {
+                console.error("yt-dlp subprocess error:", err);
+                reject(err);
+            });
         });
     });
 }
@@ -174,12 +224,13 @@ export const videoService = {
         const endSec = timeToSeconds(endTime);
         const durationSec = Math.max(0.001, endSec - startSec);
 
-        // With subtitles: pad the download, then precise-cut in the single FFmpeg encode pass.
+        // Precise cuts / subtitles: pad download, NEVER --force-keyframes (that re-encodes over HTTP).
+        const precise = needsPreciseCut(startTime, endTime, subtitles);
         let sectionStartSec = startSec;
         let sectionEndSec = endSec;
         let cutStartSec = 0;
-        if (subtitles) {
-            sectionStartSec = Math.max(0, startSec - SUBTITLE_SECTION_PAD_SEC);
+        if (precise) {
+            sectionStartSec = Math.max(0, startSec - SECTION_PAD_SEC);
             sectionEndSec = endSec + 0.25;
             cutStartSec = startSec - sectionStartSec;
         }
@@ -200,9 +251,7 @@ export const videoService = {
                 "-f", format,
             ]);
 
-            if (needsForcedKeyframes(startTime, endTime, subtitles)) {
-                ytArgs.push("--force-keyframes-at-cuts");
-            }
+            // Stream-copy section only. Do NOT add --force-keyframes-at-cuts.
 
             if (useAria2cDownloader()) {
                 const aria2cPath = resolveAria2c();
@@ -223,7 +272,6 @@ export const videoService = {
             return ytArgs;
         };
 
-        // User itags often 403/hang on --download-sections; always use safe H.264 unless explicitly overridden
         const allowUserFormat =
             process.env.ALLOW_USER_FORMAT === "1" ||
             process.env.ALLOW_USER_FORMAT === "true";
@@ -240,7 +288,12 @@ export const videoService = {
             onProgress?.(next);
         };
 
-        const runOpts = { signal, onProgress: reportProgress, sectionDurationSec };
+        const runOpts = {
+            signal,
+            onProgress: reportProgress,
+            sectionDurationSec,
+            outputPath,
+        };
 
         reportProgress(1);
         try {
@@ -249,7 +302,7 @@ export const videoService = {
             const message = err instanceof Error ? err.message : String(err);
             const canRetry =
                 primaryFormat !== SAFE_SECTION_FORMAT &&
-                (isYoutubeForbiddenError(message) || /ffmpeg exited/i.test(message));
+                (isYoutubeForbiddenError(message) || /ffmpeg exited|stalled/i.test(message));
 
             if (!canRetry || signal?.aborted) throw err;
 
@@ -266,6 +319,7 @@ export const videoService = {
             sectionStartTime,
             cutStartSec,
             durationSec,
+            needsPostProcess: precise || !!subtitles,
         };
     },
 
@@ -275,7 +329,6 @@ export const videoService = {
         signal?: AbortSignal,
         onProgress?: (progress: number) => void,
         durationSeconds?: number,
-        /** Precise cut into the (possibly padded) download; applied after -i for filter accuracy. */
         cutStartSec?: number,
     }) {
         const { subtitles, subPath, signal, onProgress, durationSeconds, cutStartSec = 0 } = options;
@@ -283,47 +336,48 @@ export const videoService = {
             throw new Error("Aborted");
         }
         const ffmpegPath = resolveFfmpeg();
-        const ffmpegArgs = ['-y', '-hwaccel', 'auto'];
+        const burnSubs = !!(subtitles && subPath && fs.existsSync(subPath));
+        const ffmpegArgs = ["-y", "-hwaccel", "auto"];
 
-        // Fast input seek when trimming padded subtitle downloads (avoid decoding from t=0)
-        if (cutStartSec > 0.5) {
-            ffmpegArgs.push('-ss', cutStartSec.toFixed(3));
+        // Input seek for stream-copy / burn-in (avoids decoding from t=0)
+        if (cutStartSec > 0) {
+            ffmpegArgs.push("-ss", cutStartSec.toFixed(3));
         }
-        ffmpegArgs.push('-i', inputPath);
+        ffmpegArgs.push("-i", inputPath);
 
         if (durationSeconds && durationSeconds > 0) {
-            ffmpegArgs.push('-t', durationSeconds.toFixed(3));
+            ffmpegArgs.push("-t", durationSeconds.toFixed(3));
         }
 
-        if (subtitles && subPath && fs.existsSync(subPath)) {
-            // Escape path for FFmpeg subtitles filter (Windows backslashes / colons)
-            const escapedSub = subPath
-                .replace(/\\/g, '/')
-                .replace(/:/g, '\\:')
+        if (burnSubs) {
+            const escapedSub = subPath!
+                .replace(/\\/g, "/")
+                .replace(/:/g, "\\:")
                 .replace(/'/g, "\\'");
             const { encoder, videoArgs } = getVideoEncoder();
 
             ffmpegArgs.push(
-                '-vf', `subtitles='${escapedSub}'`,
-                '-c:v', encoder,
+                "-vf", `subtitles='${escapedSub}'`,
+                "-c:v", encoder,
                 ...videoArgs,
-                '-c:a', 'aac',
-                '-b:a', '128k',
+                "-c:a", "aac",
+                "-b:a", "128k",
             );
         } else {
-            // Stream copy is fastest when no burn-in is needed
-            ffmpegArgs.push('-c:v', 'copy', '-c:a', 'copy', '-threads', '0');
+            // Stream copy trim — typically <200ms for a short clip
+            ffmpegArgs.push("-c:v", "copy", "-c:a", "copy", "-threads", "0");
         }
 
-        ffmpegArgs.push('-movflags', '+faststart', outputPath);
+        ffmpegArgs.push("-movflags", "+faststart", outputPath);
 
         const ff = spawn(ffmpegPath, ffmpegArgs);
 
-        if (onProgress) onProgress(50); // Start processing phase
+        if (onProgress) onProgress(burnSubs ? 50 : 90);
 
-        ff.stderr.on('data', (data) => {
+        ff.stderr.on("data", (data) => {
+            if (!burnSubs || !durationSeconds || !onProgress) return;
             for (const line of data.toString().split(/\r|\n/)) {
-                if (!line.trim() || !durationSeconds || !onProgress) continue;
+                if (!line.trim()) continue;
                 const timeMatch = line.match(/time=(\d+(?:\.\d+)?|\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?)/);
                 if (!timeMatch) continue;
                 const seconds = parseFfmpegTimeSeconds(timeMatch[1]);
@@ -346,17 +400,17 @@ export const videoService = {
         }
 
         await new Promise<void>((resolve, reject) => {
-            ff.on('close', (code) => {
+            ff.on("close", (code) => {
                 if (signal) signal.removeEventListener("abort", onAbort);
                 if (signal?.aborted) {
-                    reject(new Error('Aborted'));
+                    reject(new Error("Aborted"));
                     return;
                 }
                 code === 0 ? resolve() : reject(new Error(`ffmpeg exited with code ${code}`));
             });
-            ff.on('error', (err) => {
+            ff.on("error", (err) => {
                 if (signal) signal.removeEventListener("abort", onAbort);
-                console.error('ffmpeg subprocess error:', err);
+                console.error("ffmpeg subprocess error:", err);
                 reject(err);
             });
         });
