@@ -62,14 +62,14 @@ function parseFfmpegTimeSeconds(raw: string): number | null {
 function parseDownloadProgress(str: string, sectionDurationSec: number, onProgress?: (n: number) => void) {
     if (!onProgress) return;
 
-    // Native yt-dlp fragment progress (stdout or stderr)
+    // Native yt-dlp fragment progress (stdout or stderr) — maps to 0–50% overall
     const dlMatch = str.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
     if (dlMatch) {
         onProgress(Math.round(parseFloat(dlMatch[1]) / 2));
         return;
     }
 
-    // --download-sections delegates to ffmpeg; progress uses time= on one \\r-delimited line
+    // ffmpeg section mux: time= + optional speed= (speed>1 means faster than realtime)
     if (sectionDurationSec > 0) {
         const timeMatch = str.match(/time=(\d+(?:\.\d+)?|\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?)/);
         if (timeMatch) {
@@ -80,6 +80,19 @@ function parseDownloadProgress(str: string, sectionDurationSec: number, onProgre
             }
         }
     }
+}
+
+/** Wall-clock estimate when ffmpeg emits no time= lines during long HTTP reads. */
+function estimateDownloadProgress(elapsedMs: number, sectionDurationSec: number): number {
+    // Typical section fetch: ~0.8–2× realtime; asymptotic curve avoids freezing at 49%
+    const expectedMs = Math.max(3000, sectionDurationSec * 1200);
+    const ratio = elapsedMs / expectedMs;
+    if (ratio <= 1) {
+        return Math.max(1, Math.min(48, Math.round(ratio * 48)));
+    }
+    // Past estimate: creep slowly toward 50 so UI shows life without claiming done
+    const overSec = (elapsedMs - expectedMs) / 1000;
+    return Math.min(50, 48 + Math.floor(overSec / 8));
 }
 
 function feedYtDlpOutput(
@@ -224,26 +237,20 @@ export const videoService = {
         const primaryFormat = formatId?.trim() || SAFE_SECTION_FORMAT;
 
         let lastReported = 0;
-        let lastRealBump = Date.now();
         const reportProgress = (p: number) => {
             const next = Math.max(0, Math.min(100, Math.round(p)));
-            if (next > lastReported) {
-                lastReported = next;
-                lastRealBump = Date.now();
-            }
+            if (next <= lastReported) return;
+            lastReported = next;
             onProgress?.(next);
         };
 
-        const heartbeat = setInterval(() => {
+        const downloadStarted = Date.now();
+        const progressTicker = setInterval(() => {
             if (signal?.aborted) return;
-            // Slow pulse while yt-dlp/ffmpeg work but emit no parseable lines yet
-            if (Date.now() - lastRealBump > 2500 && lastReported < 49) {
-                lastReported = Math.min(49, lastReported + 1);
-                onProgress?.(lastReported);
-                lastRealBump = Date.now();
-            }
-        }, 2500);
-        heartbeat.unref?.();
+            const estimate = estimateDownloadProgress(Date.now() - downloadStarted, sectionDurationSec);
+            reportProgress(Math.max(lastReported, estimate));
+        }, 1000);
+        progressTicker.unref?.();
 
         const runOpts = { signal, onProgress: reportProgress, sectionDurationSec };
 
@@ -264,8 +271,10 @@ export const videoService = {
             reportProgress(2);
             await runYtDlp(ytDlpPath, buildArgs(SAFE_SECTION_FORMAT), runOpts);
         } finally {
-            clearInterval(heartbeat);
+            clearInterval(progressTicker);
         }
+
+        reportProgress(50);
 
         return {
             outputPath,

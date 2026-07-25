@@ -10,9 +10,9 @@ import { resolveFfmpeg } from "./binaries";
 export const YT_PLAYER_CLIENT_ARGS =
     "youtube:player_client=default,-android_sdkless";
 
-/** Safer default for section downloads (H.264/AAC mp4). */
+/** Safer default for section downloads (H.264/AAC mp4). Prefer 720p for speed. */
 export const SAFE_SECTION_FORMAT =
-    "bv[ext=mp4][vcodec^=avc1][height<=?1080][fps<=?60]+ba[ext=m4a]/best[ext=mp4][vcodec^=avc1][height<=?1080]/best";
+    "bv[ext=mp4][vcodec^=avc1][height<=?720][fps<=?30]+ba[ext=m4a]/best[ext=mp4][vcodec^=avc1][height<=?720]/best";
 
 /**
  * Shared yt-dlp flags that reduce YouTube 403s on googlevideo URLs.

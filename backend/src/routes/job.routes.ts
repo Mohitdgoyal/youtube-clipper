@@ -187,8 +187,8 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
             if (next < 100 && next <= lastSentProgress) return;
             if (
                 next < 100 &&
-                next - lastSentProgress < 2 &&
-                now - lastProgressWrite < 500
+                next - lastSentProgress < 1 &&
+                now - lastProgressWrite < 300
             ) {
                 return;
             }
