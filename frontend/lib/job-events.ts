@@ -7,6 +7,25 @@ export type JobStatusEvent = {
   storagePath?: string | null;
 };
 
+export class JobCancelledError extends Error {
+  constructor(message = "Cancelled by user") {
+    super(message);
+    this.name = "JobCancelledError";
+  }
+}
+
+function isTerminalSuccess(status: string) {
+  return status === "ready";
+}
+
+function isTerminalFailure(status: string) {
+  return status === "error";
+}
+
+function isCancelled(status: string) {
+  return status === "cancelled";
+}
+
 /**
  * Wait for a clip job to finish via Server-Sent Events.
  * Falls back to exponential-backoff HTTP polling if EventSource is unavailable
@@ -14,10 +33,11 @@ export type JobStatusEvent = {
  */
 export function waitForJob(
   id: string,
-  onUpdate: (data: JobStatusEvent) => void
+  onUpdate: (data: JobStatusEvent) => void,
+  options?: { signal?: AbortSignal }
 ): Promise<JobStatusEvent> {
   if (typeof EventSource === "undefined") {
-    return pollForJob(id, onUpdate);
+    return pollForJob(id, onUpdate, options?.signal);
   }
 
   return new Promise((resolve, reject) => {
@@ -31,8 +51,20 @@ export function waitForJob(
       if (settled) return;
       settled = true;
       es.close();
+      options?.signal?.removeEventListener("abort", onClientAbort);
       fn();
     };
+
+    const onClientAbort = () => {
+      settle(() => reject(new JobCancelledError("Cancelled by user")));
+    };
+    if (options?.signal) {
+      if (options.signal.aborted) {
+        settle(() => reject(new JobCancelledError("Cancelled by user")));
+        return;
+      }
+      options.signal.addEventListener("abort", onClientAbort, { once: true });
+    }
 
     es.onmessage = (event) => {
       let data: JobStatusEvent;
@@ -45,9 +77,11 @@ export function waitForJob(
 
       onUpdate(data);
 
-      if (data.status === "ready") {
+      if (isTerminalSuccess(data.status)) {
         settle(() => resolve(data));
-      } else if (data.status === "error") {
+      } else if (isCancelled(data.status)) {
+        settle(() => reject(new JobCancelledError(data.error || "Cancelled by user")));
+      } else if (isTerminalFailure(data.status)) {
         settle(() => reject(new Error(data.error || "Processing failed")));
       }
     };
@@ -64,7 +98,7 @@ export function waitForJob(
         return;
       }
       settle(() => {
-        pollForJob(id, onUpdate).then(resolve, reject);
+        pollForJob(id, onUpdate, options?.signal).then(resolve, reject);
       });
     };
   });
@@ -72,19 +106,25 @@ export function waitForJob(
 
 async function pollForJob(
   id: string,
-  onUpdate: (data: JobStatusEvent) => void
+  onUpdate: (data: JobStatusEvent) => void,
+  signal?: AbortSignal
 ): Promise<JobStatusEvent> {
   let delay = 1000;
   for (;;) {
-    // Poll immediately first, then backoff between attempts
+    if (signal?.aborted) {
+      throw new JobCancelledError("Cancelled by user");
+    }
     const res = await fetch(`/api/clip/${id}`);
     if (!res.ok) {
       throw new Error("Failed to fetch job status");
     }
     const data = (await res.json()) as JobStatusEvent;
     onUpdate(data);
-    if (data.status === "ready") return data;
-    if (data.status === "error") {
+    if (isTerminalSuccess(data.status)) return data;
+    if (isCancelled(data.status)) {
+      throw new JobCancelledError(data.error || "Cancelled by user");
+    }
+    if (isTerminalFailure(data.status)) {
       throw new Error(data.error || "Processing failed");
     }
     await new Promise((r) => setTimeout(r, delay));

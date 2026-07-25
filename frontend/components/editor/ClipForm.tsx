@@ -2,10 +2,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowRight, Scissors, Link2, ChevronDown } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowRight, Scissors, Link2, ChevronDown, X } from "lucide-react";
 import { timeToSeconds, secondsToTime } from "@/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { Progress } from "@/components/ui/progress";
+
+export type BulkLineStatus = {
+    start: string;
+    end: string;
+    status: "pending" | "running" | "ready" | "error" | "cancelled" | "skipped";
+    error?: string;
+};
 
 interface ClipFormProps {
     url: string;
@@ -20,6 +27,7 @@ interface ClipFormProps {
     progress?: number;
     stage?: string;
     handleSubmit: (e: React.FormEvent) => void;
+    onCancel?: () => void;
 
     formats: { format_id: string; label: string }[];
     selectedFormat: string;
@@ -28,6 +36,8 @@ interface ClipFormProps {
     setIsBulk: (bulk: boolean) => void;
     bulkTimestamps: string;
     setBulkTimestamps: (ts: string) => void;
+    bulkLineStatuses?: BulkLineStatus[];
+    cookieWarning?: string | null;
 }
 
 function TimeField({
@@ -105,9 +115,11 @@ function TimeField({
 
 export default function ClipForm({
     url, setUrl, startTime, setStartTime, endTime, setEndTime,
-    addSubs, setAddSubs, loading, progress = 0, stage = "Processing", handleSubmit,
+    addSubs, setAddSubs, loading, progress = 0, stage = "Processing", handleSubmit, onCancel,
     formats, selectedFormat, setSelectedFormat,
-    isBulk, setIsBulk, bulkTimestamps, setBulkTimestamps
+    isBulk, setIsBulk, bulkTimestamps, setBulkTimestamps,
+    bulkLineStatuses = [],
+    cookieWarning = null,
 }: ClipFormProps) {
     return (
         <motion.form
@@ -134,6 +146,12 @@ export default function ClipForm({
                         className="w-full bg-transparent px-1 py-2 text-sm outline-none placeholder:text-muted-foreground/70"
                     />
                 </div>
+
+                {cookieWarning && (
+                    <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-snug text-amber-800 dark:text-amber-200">
+                        {cookieWarning}
+                    </p>
+                )}
 
                 <AnimatePresence>
                     {loading && (
@@ -179,8 +197,35 @@ export default function ClipForm({
                             value={bulkTimestamps}
                             onChange={(e) => setBulkTimestamps(e.target.value)}
                             placeholder={"00:01:00-00:02:00\n00:05:30-00:06:15"}
-                            className="min-h-[120px] w-full rounded-2xl border border-border/80 bg-background/70 p-4 font-mono text-sm outline-none transition-shadow focus:ring-2 focus:ring-primary/20"
+                            disabled={loading}
+                            className="min-h-[120px] w-full rounded-2xl border border-border/80 bg-background/70 p-4 font-mono text-sm outline-none transition-shadow focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
                         />
+                        {bulkLineStatuses.length > 0 && (
+                            <ul className="flex flex-col gap-1.5 rounded-2xl border border-border/60 bg-muted/20 p-3 text-xs">
+                                {bulkLineStatuses.map((line, i) => (
+                                    <li key={`${line.start}-${line.end}-${i}`} className="flex items-start justify-between gap-3 font-mono">
+                                        <span className="text-muted-foreground">
+                                            {line.start}–{line.end}
+                                        </span>
+                                        <span
+                                            className={
+                                                line.status === "ready"
+                                                    ? "text-emerald-600 dark:text-emerald-400"
+                                                    : line.status === "error"
+                                                      ? "text-destructive"
+                                                      : line.status === "running"
+                                                        ? "text-primary"
+                                                        : "text-muted-foreground"
+                                            }
+                                            title={line.error}
+                                        >
+                                            {line.status}
+                                            {line.error ? `: ${line.error.slice(0, 40)}` : ""}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
                     </div>
                 ) : (
                     <div className="flex w-full items-end gap-3">
@@ -255,24 +300,40 @@ export default function ClipForm({
                 </div>
             </div>
 
-            <Button
-                type="submit"
-                disabled={loading}
-                size="lg"
-                className="h-12 w-full rounded-2xl text-base font-semibold shadow-sm transition-transform active:scale-[0.99]"
-            >
-                {loading ? (
-                    <>
+            {loading ? (
+                <div className="flex w-full gap-2">
+                    <Button
+                        type="button"
+                        disabled
+                        size="lg"
+                        className="h-12 flex-1 rounded-2xl text-base font-semibold"
+                    >
                         <Loader2 className="h-5 w-5 animate-spin" />
                         Clipping…
-                    </>
-                ) : (
-                    <>
-                        <Scissors className="h-5 w-5" />
-                        Clip video
-                    </>
-                )}
-            </Button>
+                    </Button>
+                    {onCancel && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="lg"
+                            onClick={onCancel}
+                            className="h-12 shrink-0 rounded-2xl px-4"
+                        >
+                            <X className="h-5 w-5" />
+                            Cancel
+                        </Button>
+                    )}
+                </div>
+            ) : (
+                <Button
+                    type="submit"
+                    size="lg"
+                    className="h-12 w-full rounded-2xl text-base font-semibold shadow-sm transition-transform active:scale-[0.99]"
+                >
+                    <Scissors className="h-5 w-5" />
+                    Clip video
+                </Button>
+            )}
         </motion.form>
     );
 }

@@ -5,7 +5,7 @@
     "start": "node dist/index.js",
     "start:bun": "bun dist/index.js",
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test src/utils/time.test.ts src/services/video.service.test.ts && node --import tsx --test src/routes/job.routes.test.ts src/routes/format.routes.test.ts",
+    "test": "bun test src/utils/time.test.ts src/utils/cookies-health.test.ts src/services/video.service.test.ts && node --import tsx --test src/routes/job.routes.test.ts src/routes/format.routes.test.ts",
     "test:routes": "node --import tsx --test src/routes/job.routes.test.ts src/routes/format.routes.test.ts"
   },
   "dependencies": {

@@ -7,6 +7,7 @@ import { ALLOWED_ORIGIN, UPLOADS_DIR } from "./constants";
 import { authMiddleware } from "./middleware/auth.middleware";
 import jobRoutes from "./routes/job.routes";
 import formatRoutes from "./routes/format.routes";
+import healthRoutes from "./routes/health.routes";
 import { errorMiddleware } from "./middleware/error.middleware";
 import { verifyDownloadSignature } from "./utils/signed-url";
 
@@ -62,6 +63,7 @@ app.get("/uploads/:filename", (req, res) => {
 app.use("/api", authMiddleware);
 app.use("/api", jobRoutes);
 app.use("/api", formatRoutes);
+app.use("/api", healthRoutes);
 
 // Error handling
 app.use(errorMiddleware);

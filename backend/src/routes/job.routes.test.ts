@@ -86,4 +86,25 @@ describe("Job Routes", () => {
         assert.equal(response.status, 200);
         assert.equal(response.body.success, true);
     });
+
+    it("POST /api/clip/:id/cancel cancels a processing job", async () => {
+        const response = await request(app)
+            .post("/api/clip/existing-job/cancel")
+            .set(AUTH_HEADER);
+
+        assert.equal(response.status, 200);
+        assert.equal(response.body.success, true);
+        assert.equal(response.body.status, "cancelled");
+    });
+
+    it("POST /api/clip/:id/cancel reports already finished for ready jobs", async () => {
+        const response = await request(app)
+            .post("/api/clip/ready-job/cancel")
+            .set(AUTH_HEADER);
+
+        assert.equal(response.status, 200);
+        assert.equal(response.body.status, "ready");
+        assert.equal(response.body.alreadyFinished, true);
+        assert.match(response.body.message, /already finished/i);
+    });
 });

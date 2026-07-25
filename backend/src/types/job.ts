@@ -2,7 +2,7 @@
  * Type definitions for job-related data structures
  */
 
-export type JobStatus = "processing" | "ready" | "error";
+export type JobStatus = "processing" | "ready" | "error" | "cancelled";
 export type JobStage = "queued" | "downloading" | "processing" | "uploading" | "done";
 
 /**

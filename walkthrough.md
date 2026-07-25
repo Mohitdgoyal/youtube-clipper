@@ -94,6 +94,9 @@ $env:FRONTEND_URL='http://localhost:3000'; bun run smoke:clip
 ## Notes
 - Clip download: **short clips (&lt;90s)** try quality clients first, then reliable web/progressive. **Longer clips (e.g. 4 min)** skip the quality probe and go straight to the reliable path.
 - Expect ~**1× realtime** for long section downloads (a 4‑minute clip often takes ~4–8 minutes). Job timeout scales with length (up to 30 min).
+- **Cancel** stops the in-flight yt-dlp/ffmpeg process (header Cancel while clipping).
+- **Cookie chip** in the header shows cookies ok / missing / stale (`GET /api/health/cookies`).
+- Bulk mode continues after a failed line; Cancel stops the current job and skips the rest.
 - Some videos only expose **360p** without cookies. For 720p/1080p: `backend/cookies.txt` or `COOKIES_FROM_BROWSER=chrome`.
 - Aria2 is opt-in via `USE_ARIA2C=1` (usually worse for sections).
 - Railway start uses Bun (`bun dist/index.js`) with software x264 (`DISABLE_HW_ENCODE=1`).
