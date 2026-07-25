@@ -24,7 +24,7 @@ export function buildFormatList(info: YtDlpOutput): FormatInfo[] {
                 f.height &&
                 f.width &&
                 f.width * f.height <= MAX_PIXELS &&
-                // Prefer mp4/H.264 for reliable --download-sections; webm/AV1 more fragile
+                // mp4 H.264 only (DASH or progressive) — match clip-download clients
                 f.ext === "mp4" &&
                 (f.vcodec.includes("avc1") || f.vcodec.includes("h264"))
         )

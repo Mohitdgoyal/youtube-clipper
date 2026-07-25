@@ -3,31 +3,38 @@ import path from "path";
 import { resolveFfmpeg } from "./binaries";
 
 /**
- * Prefer web clients for --download-sections.
- * `default` alone often picks ANDROID_VR progressive URLs that hang under ffmpeg.
+ * Clip clients: avoid android_vr (section downloads hang on googlevideo).
+ * Keep web/mweb/tv/default for progressive + non-VR dash when available.
  */
 export const YT_CLIP_PLAYER_CLIENT =
     "youtube:player_client=web,mweb,tv,default,-android_sdkless,-android_vr";
 
-export const YT_METADATA_PLAYER_CLIENT =
-    "youtube:player_client=web,default,-android_sdkless";
+/** Metadata must match clip clients so the picker doesn't list unavailable itags. */
+export const YT_METADATA_PLAYER_CLIENT = YT_CLIP_PLAYER_CLIENT;
 
-/** Default "Best available": H.264/AAC up to 1080p60 (reliable with --download-sections). */
+/**
+ * Best available for sections.
+ * Prefer DASH H.264, then progressive mp4 (itag 18 etc.), then any best.
+ * Important: many videos only expose progressive mp4 on web clients.
+ */
 export const SAFE_SECTION_FORMAT =
-    "bv[ext=mp4][vcodec^=avc1][height<=?1080][fps<=?60]+ba[ext=m4a]/best[ext=mp4][vcodec^=avc1][height<=?1080]/best";
+    "bv[ext=mp4][vcodec^=avc1][height<=?1080][fps<=?60]+ba[ext=m4a]/" +
+    "best[ext=mp4][height<=?1080]/" +
+    "best[ext=mp4]/best";
 
-/** Last-resort fallback if a chosen quality 403s/stalls. */
+/** Narrower fallback when the primary selector still fails. */
 export const FALLBACK_SECTION_FORMAT =
-    "bv[ext=mp4][vcodec^=avc1][height<=?720][fps<=?30]+ba[ext=m4a]/best[ext=mp4][vcodec^=avc1][height<=?720]/best";
+    "best[ext=mp4]/best";
 
-/** Build a height/fps selector (avoids fragile raw itags like 299 that hang on sections). */
+/** Build a height/fps selector with progressive fallback. */
 export function sectionFormatForHeight(height: number, fps?: number): string {
     const h = Math.max(144, Math.min(2160, Math.round(height)));
     const f = fps && fps > 30 ? Math.min(60, Math.round(fps)) : undefined;
     const fpsFilter = f ? `[fps<=?${f}]` : "";
     return (
         `bv[ext=mp4][vcodec^=avc1][height<=?${h}]${fpsFilter}+ba[ext=m4a]/` +
-        `best[ext=mp4][vcodec^=avc1][height<=?${h}]/best`
+        `best[ext=mp4][height<=?${h}]/` +
+        `best[ext=mp4]/best`
     );
 }
 
@@ -91,5 +98,7 @@ export function useAria2cDownloader(): boolean {
 }
 
 export function isYoutubeForbiddenError(stderr: string): boolean {
-    return /403 Forbidden|HTTP error 403|DRM protected|No video formats found/i.test(stderr);
+    return /403 Forbidden|HTTP error 403|DRM protected|No video formats found|Requested format is not available/i.test(
+        stderr
+    );
 }
