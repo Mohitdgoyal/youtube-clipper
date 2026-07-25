@@ -46,8 +46,15 @@ export type ClipAttempt = {
     stallMs: number;
 };
 
-/** Ordered attempts: quality first (short leash), then reliable. */
-export function buildClipAttempts(preferredFormat?: string): ClipAttempt[] {
+/**
+ * Ordered attempts: quality first (short clips only), then reliable.
+ * Long sections (≥90s) skip android_vr — hangs waste minutes and mid-download
+ * stall kills are catastrophic on 4+ minute clips.
+ */
+export function buildClipAttempts(
+    preferredFormat?: string,
+    sectionDurationSec = 0
+): ClipAttempt[] {
     const preferred = preferredFormat?.trim();
     const formats = [
         preferred,
@@ -56,20 +63,27 @@ export function buildClipAttempts(preferredFormat?: string): ClipAttempt[] {
     ].filter((f, i, arr): f is string => !!f && arr.indexOf(f) === i);
 
     const attempts: ClipAttempt[] = [];
-    for (const format of formats) {
-        attempts.push({
-            label: `quality:${format.slice(0, 40)}`,
-            playerClient: YT_QUALITY_PLAYER_CLIENT,
-            format,
-            stallMs: Number(process.env.YTDLP_QUALITY_STALL_MS || 20_000),
-        });
+    const allowQualityProbe = sectionDurationSec > 0 && sectionDurationSec < 90;
+
+    if (allowQualityProbe) {
+        for (const format of formats) {
+            attempts.push({
+                label: `quality:${format.slice(0, 40)}`,
+                playerClient: YT_QUALITY_PLAYER_CLIENT,
+                format,
+                // Short leash only until first bytes; after growth use longer window in runYtDlp
+                stallMs: Number(process.env.YTDLP_QUALITY_STALL_MS || 20_000),
+            });
+        }
     }
+
     for (const format of formats) {
         attempts.push({
             label: `reliable:${format.slice(0, 40)}`,
             playerClient: YT_RELIABLE_PLAYER_CLIENT,
             format,
-            stallMs: Number(process.env.YTDLP_STALL_TIMEOUT_MS || 45_000),
+            // Long clips can pause between fragments — do not kill at 45s
+            stallMs: Number(process.env.YTDLP_STALL_TIMEOUT_MS || 120_000),
         });
     }
     return attempts;

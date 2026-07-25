@@ -182,9 +182,16 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
     clipJobQueue.add(async () => {
         let finalJobStatus: JobUpdate = {};
         const controller = new AbortController();
+        // Scale with clip length: section download is often ~1× realtime + retries/overhead.
+        // 4 min clip → ~14 min budget; hard cap 30 min.
+        const clipSec = Math.max(1, endSec - startSec);
+        const jobTimeoutMs = Math.min(
+            30 * 60 * 1000,
+            Math.max(10 * 60 * 1000, Math.round(clipSec * 2500) + 4 * 60 * 1000)
+        );
         const timeoutId = setTimeout(() => {
             controller.abort();
-        }, 10 * 60 * 1000);
+        }, jobTimeoutMs);
 
         let lastProgressWrite = 0;
         let lastSentProgress = 0;

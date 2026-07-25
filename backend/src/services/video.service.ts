@@ -167,8 +167,11 @@ function runYtDlp(
                 sawAnyBytes = true;
                 return;
             }
-            // Grace period before first byte (extract/JS challenge), then strict file stall
-            const grace = sawAnyBytes ? stallMs : Math.max(stallMs, 35_000);
+            // Before first byte: allow extract/JS challenge.
+            // After bytes flow: allow longer pauses (4+ min clips buffer between fragments).
+            const grace = sawAnyBytes
+                ? Math.max(stallMs, 90_000)
+                : Math.max(stallMs, 40_000);
             if (Date.now() - lastGrowthAt >= grace) {
                 onAbort();
                 finish(() =>
@@ -282,7 +285,7 @@ export const videoService = {
             await fs.promises.unlink(`${outputPath}.part`).catch(() => undefined);
         };
 
-        const attempts = buildClipAttempts(formatId);
+        const attempts = buildClipAttempts(formatId, sectionDurationSec);
         reportProgress(1);
 
         let lastErr: unknown;
