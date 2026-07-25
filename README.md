@@ -77,6 +77,7 @@ bun run start
 
 - The backend will start on `http://localhost:3001` by default.
 - `bun run start` runs `node dist/index.js` (recommended on Windows — Bun can crash on `better-sqlite3` NAPI). Railway uses `bun dist/index.js`.
+- For higher quality: place Netscape cookies at `backend/cookies.txt` locally, or mount `/data/cookies.txt` on Railway (`YTDLP_COOKIES` — see `walkthrough.md`).
 
 #### Start the frontend
 

@@ -31,9 +31,40 @@ BACKEND_API_URL=http://localhost:3001
 BACKEND_SECRET=dev-secret
 ```
 
-Optional YouTube cookies (backend):
-- `backend/cookies.txt`, or
-- `COOKIES_FROM_BROWSER=chrome` (close the browser first on Windows)
+### Optional: YouTube cookies (higher quality on gated videos)
+
+**Method A — `backend/cookies.txt` (recommended)**
+
+1. In Chrome, open [https://www.youtube.com](https://www.youtube.com) and sign in.
+2. Install a cookie export extension that supports **Netscape** format, e.g.  
+   [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc)  
+   (or any equivalent that exports Netscape `cookies.txt`).
+3. On youtube.com, use the extension → **Export** / **Export as cookies.txt**.
+4. Save/rename the file to exactly:  
+   `c:\Users\Mohit\Documents\GitHub\youtube-clipper\backend\cookies.txt`
+5. Confirm the file starts with something like `# Netscape HTTP Cookie File` and contains `youtube.com` / `.youtube.com` lines.
+6. Restart the backend:
+   ```powershell
+   cd c:\Users\Mohit\Documents\GitHub\youtube-clipper\backend
+   bun run build
+   $env:PORT='3001'; node dist/index.js
+   ```
+7. Hard-refresh the frontend, paste a video, and clip again.
+
+**Method B — read cookies from Chrome (no file)**
+
+1. Sign in to youtube.com in Chrome.
+2. **Fully quit Chrome** (all windows; check Task Manager that `chrome.exe` is gone).
+3. Start backend with:
+   ```powershell
+   cd c:\Users\Mohit\Documents\GitHub\youtube-clipper\backend
+   bun run build
+   $env:COOKIES_FROM_BROWSER='chrome'
+   $env:PORT='3001'; node dist/index.js
+   ```
+4. You can reopen Chrome after the backend has started.
+
+Do **not** commit `cookies.txt` (it is gitignored). Treat it like a password.
 
 ---
 
@@ -66,3 +97,15 @@ $env:FRONTEND_URL='http://localhost:3000'; bun run smoke:clip
 - Some videos only expose **360p** without cookies. For 720p/1080p: `backend/cookies.txt` or `COOKIES_FROM_BROWSER=chrome`.
 - Aria2 is opt-in via `USE_ARIA2C=1` (usually worse for sections).
 - Railway start uses Bun (`bun dist/index.js`) with software x264 (`DISABLE_HW_ENCODE=1`).
+
+### Railway: cookies for higher quality
+
+`railway.json` sets `YTDLP_COOKIES=/data/cookies.txt`. To enable it:
+
+1. Create a Railway **Volume** mounted at `/data` (persistent).
+2. Upload your Netscape `cookies.txt` to `/data/cookies.txt` on that volume  
+   (SCP/SSH, one-off release command, or bake via a private deploy step — **never** commit cookies to git).
+3. Redeploy so the backend process sees the file.
+4. Rotate/re-export cookies when YouTube quality drops again (sessions expire).
+
+Local still uses `backend/cookies.txt` automatically when present.

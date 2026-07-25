@@ -290,7 +290,11 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
             };
         } catch (err: any) {
             if (err.message === "Aborted") {
-                finalJobStatus = { status: "error", error: "Job timed out (limit: 10 mins)" };
+                const limitMins = Math.max(1, Math.round(jobTimeoutMs / 60_000));
+                finalJobStatus = {
+                    status: "error",
+                    error: `Job timed out (limit: ${limitMins} min)`,
+                };
             } else {
                 finalJobStatus = { status: "error", error: err.message };
             }

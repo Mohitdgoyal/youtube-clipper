@@ -11,6 +11,7 @@ import {
     useAria2cDownloader,
     buildClipAttempts,
     isRetriableYtDlpError,
+    isDrmProtectedError,
     sanitizeYtDlpError,
     type ClipAttempt,
 } from "../utils/yt-dlp-args";
@@ -167,11 +168,9 @@ function runYtDlp(
                 sawAnyBytes = true;
                 return;
             }
-            // Before first byte: allow extract/JS challenge.
-            // After bytes flow: allow longer pauses (4+ min clips buffer between fragments).
-            const grace = sawAnyBytes
-                ? Math.max(stallMs, 90_000)
-                : Math.max(stallMs, 40_000);
+            // Before first byte: honor attempt stallMs (quality ~20s fail-fast).
+            // After bytes flow: allow longer pauses (fragment gaps on long clips).
+            const grace = sawAnyBytes ? Math.max(stallMs, 90_000) : stallMs;
             if (Date.now() - lastGrowthAt >= grace) {
                 onAbort();
                 finish(() =>
@@ -309,8 +308,10 @@ export const videoService = {
             } catch (err) {
                 lastErr = err;
                 const message = err instanceof Error ? err.message : String(err);
-                const retriable = isRetriableYtDlpError(message) || /stalled for/i.test(message);
                 console.warn(`[yt-dlp] attempt failed: ${sanitizeYtDlpError(message)}`);
+                // DRM never succeeds on retry — fail the job immediately
+                if (isDrmProtectedError(message)) break;
+                const retriable = isRetriableYtDlpError(message) || /stalled for/i.test(message);
                 if (!retriable || i === attempts.length - 1) break;
             }
         }

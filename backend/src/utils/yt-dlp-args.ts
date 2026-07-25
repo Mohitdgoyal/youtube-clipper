@@ -140,8 +140,14 @@ export function useAria2cDownloader(): boolean {
     return process.env.USE_ARIA2C === "1" || process.env.USE_ARIA2C === "true";
 }
 
+export function isDrmProtectedError(stderr: string): boolean {
+    return /DRM protected/i.test(stderr);
+}
+
+/** Errors worth trying the next client/format attempt. DRM is never retriable. */
 export function isRetriableYtDlpError(stderr: string): boolean {
-    return /403 Forbidden|HTTP error 403|DRM protected|No video formats found|Requested format is not available|stalled for|ffmpeg exited|Sign in to confirm|confirm you’re not a bot|confirm you're not a bot/i.test(
+    if (isDrmProtectedError(stderr)) return false;
+    return /403 Forbidden|HTTP error 403|No video formats found|Requested format is not available|stalled for|ffmpeg exited|Sign in to confirm|confirm you’re not a bot|confirm you're not a bot/i.test(
         stderr
     );
 }

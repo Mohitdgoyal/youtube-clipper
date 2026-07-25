@@ -16,6 +16,10 @@ frontend/.drizzle-gen.db
 backend/uploads/*.mp4
 backend/uploads/*.vtt
 
+# YouTube auth cookies for yt-dlp (never commit)
+backend/cookies.txt
+cookies.txt
+
 # Logs
 *.log
 npm-debug.log*

@@ -23,7 +23,8 @@
       "FFMPEG_PATH": "/root/.local/bin/ffmpeg",
       "DISABLE_HW_ENCODE": "1",
       "FFMPEG_PRESET": "veryfast",
-      "FFMPEG_ENCODER": "libx264"
+      "FFMPEG_ENCODER": "libx264",
+      "YTDLP_COOKIES": "/data/cookies.txt"
     }
   },
   "start": {
