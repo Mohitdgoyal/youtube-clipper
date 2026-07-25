@@ -7,7 +7,7 @@ import { resolveYtDlp, resolveFfmpeg, resolveAria2c } from "../utils/binaries";
 import { getVideoEncoder } from "../utils/ffmpeg-encoder";
 import { needsForcedKeyframes } from "../utils/time-precision";
 import {
-    buildCommonYtDlpArgs,
+    buildClipYtDlpArgs,
     useAria2cDownloader,
     SAFE_SECTION_FORMAT,
     isYoutubeForbiddenError,
@@ -82,18 +82,7 @@ function parseDownloadProgress(str: string, sectionDurationSec: number, onProgre
     }
 }
 
-/** Wall-clock estimate when ffmpeg emits no time= lines during long HTTP reads. */
-function estimateDownloadProgress(elapsedMs: number, sectionDurationSec: number): number {
-    // Typical section fetch: ~0.8–2× realtime; asymptotic curve avoids freezing at 49%
-    const expectedMs = Math.max(3000, sectionDurationSec * 1200);
-    const ratio = elapsedMs / expectedMs;
-    if (ratio <= 1) {
-        return Math.max(1, Math.min(48, Math.round(ratio * 48)));
-    }
-    // Past estimate: creep slowly toward 50 so UI shows life without claiming done
-    const overSec = (elapsedMs - expectedMs) / 1000;
-    return Math.min(50, 48 + Math.floor(overSec / 8));
-}
+/** Wall-clock estimate removed — it caused fake 49% stalls and extra DB writes. */
 
 function feedYtDlpOutput(
     chunk: string,
@@ -119,11 +108,11 @@ function runYtDlp(
 
     return new Promise((resolve, reject) => {
         const yt = spawn(ytDlpPath, ytArgs);
-        let stderrData = "";
+        let stderrTail = "";
 
         const onChunk = (data: Buffer | string) => {
             const str = data.toString();
-            stderrData += str;
+            stderrTail = (stderrTail + str).slice(-12_000);
             feedYtDlpOutput(str, sectionDurationSec, onProgress);
         };
 
@@ -156,9 +145,9 @@ function runYtDlp(
                 return;
             }
             if (code === 0) {
-                resolve(stderrData);
+                resolve(stderrTail);
             } else {
-                reject(new Error(`yt-dlp exited with code ${code}: ${stderrData}`));
+                reject(new Error(`yt-dlp exited with code ${code}: ${stderrTail}`));
             }
         });
         yt.on("error", (err) => {
@@ -201,7 +190,7 @@ export const videoService = {
         const sectionDurationSec = Math.max(0.001, sectionEndSec - sectionStartSec);
 
         const buildArgs = (format: string) => {
-            const ytArgs = buildCommonYtDlpArgs([
+            const ytArgs = buildClipYtDlpArgs([
                 url,
                 "--download-sections", section,
                 "-o", outputPath,
@@ -234,7 +223,14 @@ export const videoService = {
             return ytArgs;
         };
 
-        const primaryFormat = formatId?.trim() || SAFE_SECTION_FORMAT;
+        // User itags often 403/hang on --download-sections; always use safe H.264 unless explicitly overridden
+        const allowUserFormat =
+            process.env.ALLOW_USER_FORMAT === "1" ||
+            process.env.ALLOW_USER_FORMAT === "true";
+        const primaryFormat =
+            allowUserFormat && formatId?.trim()
+                ? formatId.trim()
+                : SAFE_SECTION_FORMAT;
 
         let lastReported = 0;
         const reportProgress = (p: number) => {
@@ -244,18 +240,10 @@ export const videoService = {
             onProgress?.(next);
         };
 
-        const downloadStarted = Date.now();
-        const progressTicker = setInterval(() => {
-            if (signal?.aborted) return;
-            const estimate = estimateDownloadProgress(Date.now() - downloadStarted, sectionDurationSec);
-            reportProgress(Math.max(lastReported, estimate));
-        }, 1000);
-        progressTicker.unref?.();
-
         const runOpts = { signal, onProgress: reportProgress, sectionDurationSec };
 
+        reportProgress(1);
         try {
-            reportProgress(1);
             await runYtDlp(ytDlpPath, buildArgs(primaryFormat), runOpts);
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
@@ -268,10 +256,7 @@ export const videoService = {
             console.warn(`[yt-dlp] format "${primaryFormat}" failed; retrying with safe H.264 default`);
             await fs.promises.unlink(outputPath).catch(() => undefined);
             await fs.promises.unlink(`${outputPath}.part`).catch(() => undefined);
-            reportProgress(2);
             await runYtDlp(ytDlpPath, buildArgs(SAFE_SECTION_FORMAT), runOpts);
-        } finally {
-            clearInterval(progressTicker);
         }
 
         reportProgress(50);
@@ -298,12 +283,14 @@ export const videoService = {
             throw new Error("Aborted");
         }
         const ffmpegPath = resolveFfmpeg();
-        // Decode first, then -ss/-t so subtitle burn-in timestamps stay aligned to the input timeline.
-        const ffmpegArgs = ['-y', '-hwaccel', 'auto', '-i', inputPath];
+        const ffmpegArgs = ['-y', '-hwaccel', 'auto'];
 
-        if (cutStartSec > 0) {
+        // Fast input seek when trimming padded subtitle downloads (avoid decoding from t=0)
+        if (cutStartSec > 0.5) {
             ffmpegArgs.push('-ss', cutStartSec.toFixed(3));
         }
+        ffmpegArgs.push('-i', inputPath);
+
         if (durationSeconds && durationSeconds > 0) {
             ffmpegArgs.push('-t', durationSeconds.toFixed(3));
         }

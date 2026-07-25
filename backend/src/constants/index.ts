@@ -35,7 +35,7 @@ export const ARIA2C_CONNECTIONS = process.env.ARIA2C_CONNECTIONS || "16";
 export const CONCURRENT_FRAGMENTS = process.env.CONCURRENT_FRAGMENTS || "16";
 
 // Clip job concurrency (Phase 2 queue)
-export const CLIP_JOB_CONCURRENCY = Number(process.env.CLIP_JOB_CONCURRENCY || 2);
+export const CLIP_JOB_CONCURRENCY = Number(process.env.CLIP_JOB_CONCURRENCY || 4);
 
 // Signed download URL lifetime
 export const DOWNLOAD_URL_TTL_SECONDS = Number(process.env.DOWNLOAD_URL_TTL_SECONDS || 3600);

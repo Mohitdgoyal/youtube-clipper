@@ -2,7 +2,7 @@ import { spawn } from "child_process";
 import { YtDlpOutput } from "../types/ytdlp";
 import { metadataCache, createCacheKey } from "./cache.service";
 import { resolveYtDlp } from "../utils/binaries";
-import { buildCommonYtDlpArgs } from "../utils/yt-dlp-args";
+import { buildMetadataYtDlpArgs } from "../utils/yt-dlp-args";
 
 /** In-flight fetches keyed by cache key — collapses concurrent cold misses */
 const inflight = new Map<string, Promise<YtDlpOutput>>();
@@ -36,7 +36,7 @@ export const metadataService = {
 
     async fetchInfo(url: string): Promise<YtDlpOutput> {
         const ytDlpPath = resolveYtDlp();
-        const ytArgs = buildCommonYtDlpArgs(["-j", url]);
+        const ytArgs = buildMetadataYtDlpArgs(["-j", url]);
 
         return new Promise((resolve, reject) => {
             const yt = spawn(ytDlpPath, ytArgs);

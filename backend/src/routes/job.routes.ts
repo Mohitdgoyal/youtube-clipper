@@ -97,6 +97,16 @@ async function publishJobUpdate(id: string, data: JobUpdate): Promise<void> {
         return;
     }
 
+    // Progress ticks: SSE only — skip SQLite on every 1% (was a major I/O tax during long downloads)
+    if (progressOnly) {
+        const snap = terminalJobs.has(id) ? null : getOrCreateSnapshot(id);
+        if (snap) {
+            snap.progress = data.progress ?? snap.progress;
+            jobEvents.emit(id, snapshotToPayload(snap));
+        }
+        return;
+    }
+
     await dbService.updateJob(id, data);
 
     // Merge into snapshot before marking terminal (getOrCreateSnapshot nulls after terminal)
@@ -182,14 +192,9 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
         const updateProgress = (p: number) => {
             if (terminalJobs.has(id)) return;
             const next = Math.max(0, Math.min(100, Math.round(p)));
-            const now = Date.now();
-            // Never throttle backwards or terminal 100; allow any forward jump ≥2 or after 500ms
             if (next < 100 && next <= lastSentProgress) return;
-            if (
-                next < 100 &&
-                next - lastSentProgress < 1 &&
-                now - lastProgressWrite < 300
-            ) {
+            const now = Date.now();
+            if (next < 100 && next - lastSentProgress < 2 && now - lastProgressWrite < 1000) {
                 return;
             }
             lastSentProgress = next;
@@ -300,17 +305,30 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
     return res.status(202).json({ id });
 });
 
+function mergeJobPayload(id: string, job: NonNullable<Awaited<ReturnType<typeof dbService.getJob>>>): JobEventPayload {
+    const snap = jobSnapshots.get(id);
+    return {
+        status: snap?.status ?? job.status,
+        stage: snap?.stage ?? job.stage,
+        progress: snap?.progress ?? job.progress ?? 0,
+        error: snap?.error ?? job.error,
+        url: clientDownloadUrl(snap?.public_url ?? job.public_url),
+        storagePath: snap?.storage_path ?? job.storage_path,
+    };
+}
+
 router.get("/clip/:id", async (req, res) => {
     const job = await dbService.getJob(req.params.id);
     if (!job) return res.status(404).json({ error: "job not found" });
 
+    const payload = mergeJobPayload(req.params.id, job);
     return res.json({
-        status: job.status,
-        stage: job.stage,
-        progress: job.progress ?? 0,
-        error: job.error,
-        url: clientDownloadUrl(job.public_url),
-        storagePath: job.storage_path,
+        status: payload.status,
+        stage: payload.stage,
+        progress: payload.progress,
+        error: payload.error,
+        url: payload.url,
+        storagePath: payload.storagePath,
     });
 });
 
@@ -330,7 +348,7 @@ router.get("/clip/:id/events", async (req, res) => {
         res.write(`data: ${JSON.stringify(payload)}\n\n`);
     };
 
-    send(toEventPayload(job));
+    send(mergeJobPayload(req.params.id, job));
 
     if (job.status === "ready" || job.status === "error") {
         res.write("event: end\ndata: {}\n\n");
