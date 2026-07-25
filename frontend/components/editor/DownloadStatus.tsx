@@ -8,14 +8,16 @@ export default function DownloadStatus({ count }: DownloadStatusProps) {
     return (
         <AnimatePresence mode="wait">
             {count > 0 && (
-                <motion.div
-                    initial={{ opacity: 0, y: 10 }}
+                <motion.p
+                    initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="text-center mt-4 text-sm text-muted-foreground"
+                    exit={{ opacity: 0, y: -8 }}
+                    className="text-center text-sm text-muted-foreground"
                 >
-                    🔥 {count} banger{count > 1 && "s"} clipped
-                </motion.div>
+                    <span className="font-medium text-foreground">{count}</span>
+                    {" "}
+                    clip{count === 1 ? "" : "s"} downloaded total
+                </motion.p>
             )}
         </AnimatePresence>
     );

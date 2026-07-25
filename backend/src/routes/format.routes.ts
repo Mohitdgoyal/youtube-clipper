@@ -8,50 +8,6 @@ const router = Router();
 
 const metaRateLimit = rateLimit({ windowMs: 60_000, max: 30, name: "meta" });
 
-router.get("/formats", metaRateLimit, async (req, res) => {
-    const { url } = req.query;
-    if (!url || typeof url !== "string") {
-        return res.status(400).json({ error: "url is required" });
-    }
-
-    if (!isAllowedYouTubeUrl(url)) {
-        return res.status(400).json({ error: "Only YouTube URLs are allowed" });
-    }
-
-    try {
-        const info = await metadataService.getVideoInfo(url);
-        return res.json({ formats: buildFormatList(info) });
-    } catch (err: any) {
-        console.error("Formats error:", err.message);
-        return res.status(500).json({ error: err.message });
-    }
-});
-
-router.get("/info", metaRateLimit, async (req, res) => {
-    const { url } = req.query;
-    if (!url || typeof url !== "string") {
-        return res.status(400).json({ error: "url is required" });
-    }
-
-    if (!isAllowedYouTubeUrl(url)) {
-        return res.status(400).json({ error: "Only YouTube URLs are allowed" });
-    }
-
-    try {
-        const info = await metadataService.getVideoInfo(url);
-
-        return res.json({
-            title: info.title,
-            thumbnail: info.thumbnail,
-            duration: info.duration,
-            webpage_url: info.webpage_url,
-        });
-    } catch (err: any) {
-        console.error("Info error:", err.message);
-        return res.status(500).json({ error: err.message });
-    }
-});
-
 /** Combined metadata + formats from a single yt-dlp fetch */
 router.get("/video", metaRateLimit, async (req, res) => {
     const { url } = req.query;

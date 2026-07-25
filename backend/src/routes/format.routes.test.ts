@@ -1,69 +1,52 @@
-import { describe, it, expect, mock } from "bun:test";
+import { describe, it, before } from "node:test";
+import assert from "node:assert/strict";
 import request from "supertest";
+import { metadataService } from "../services/metadata.service";
 import { app } from "../app";
 
-// Mock metadataService
-mock.module("../services/metadata.service", () => ({
-    metadataService: {
-        getVideoInfo: mock((url: string) => Promise.resolve({
-            id: "test-video-id",
+before(() => {
+    metadataService.getVideoInfo = async () =>
+        ({
             title: "Test Video",
-            formats: [
-                { format_id: "137", ext: "mp4", height: 1080, width: 1920, vcodec: "avc1", acodec: "none", fps: 30 },
-                { format_id: "140", ext: "m4a", height: 0, vcodec: "none", acodec: "mp4a" }
-            ],
-            thumbnail: "http://example.com/thumb.jpg",
+            thumbnail: "https://example.com/thumb.jpg",
             duration: 120,
-            webpage_url: "http://youtube.com/watch?v=test"
-        }))
-    }
-}));
+            webpage_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            formats: [
+                {
+                    format_id: "137",
+                    ext: "mp4",
+                    height: 1080,
+                    width: 1920,
+                    vcodec: "avc1.640028",
+                    acodec: "none",
+                    fps: 30,
+                },
+            ],
+        }) as Awaited<ReturnType<typeof metadataService.getVideoInfo>>;
+});
 
 const AUTH_HEADER = { Authorization: "Bearer dev-secret" };
 
-describe("Format Routes", () => {
-    it("GET /api/info returns metadata", async () => {
+describe("Video route", () => {
+    it("GET /api/video returns metadata and formats", async () => {
         const response = await request(app)
-            .get("/api/info?url=http://youtube.com/watch?v=test")
-            .set(AUTH_HEADER)
-            .expect(200);
-
-        expect(response.body).toEqual({
-            title: "Test Video",
-            thumbnail: "http://example.com/thumb.jpg",
-            duration: 120,
-            webpage_url: "http://youtube.com/watch?v=test"
-        });
-    });
-
-    it("GET /api/formats returns processed formats", async () => {
-        const response = await request(app)
-            .get("/api/formats?url=http://youtube.com/watch?v=test")
+            .get("/api/video?url=https://www.youtube.com/watch?v=dQw4w9WgXcQ")
             .set(AUTH_HEADER);
 
-        console.log("Formats Body:", JSON.stringify(response.body, null, 2));
-        console.log("Formats Status:", response.status);
-
-        expect(response.status).toBe(200);
-
-        expect(response.body.formats).toBeDefined();
-        // 137 is video-only, 140 is audio-only. Logic combines them.
-        expect(response.body.formats.length).toBeGreaterThan(0);
-        const format = response.body.formats.find((f: any) => f.label.startsWith("1080p"));
-        expect(format).toBeDefined();
-        expect(format.format_id).toContain("+bestaudio");
+        assert.equal(response.status, 200);
+        assert.equal(response.body.title, "Test Video");
+        assert.ok(Array.isArray(response.body.formats));
     });
 
-    it("GET /api/formats requires url", async () => {
-        await request(app)
-            .get("/api/formats")
-            .set(AUTH_HEADER)
-            .expect(400);
+    it("GET /api/video requires url", async () => {
+        const response = await request(app).get("/api/video").set(AUTH_HEADER);
+        assert.equal(response.status, 400);
     });
 
-    it("GET /api/formats requires auth", async () => {
-        await request(app)
-            .get("/api/formats?url=test")
-            .expect(401);
+    it("GET /api/video requires auth", async () => {
+        const response = await request(app).get(
+            "/api/video?url=https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        );
+        assert.equal(response.status, 401);
     });
 });

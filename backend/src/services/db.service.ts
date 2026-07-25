@@ -9,6 +9,10 @@ db.pragma("journal_mode = WAL");
 db.pragma("synchronous = NORMAL");
 db.pragma("busy_timeout = 5000");
 
+/**
+ * Drizzle owns the canonical schema (user + jobs). This CREATE is a bootstrap
+ * fallback only when migrations have not run; column types match integer ms timestamps.
+ */
 db.exec(`
   CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
@@ -19,10 +23,36 @@ db.exec(`
     error TEXT,
     public_url TEXT,
     storage_path TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);
 `);
+
+/** One-shot: legacy text created_at → unix ms */
+(() => {
+    try {
+        const rows = db
+            .prepare(`SELECT id, created_at FROM jobs`)
+            .all() as { id: string; created_at: string | number }[];
+        const upd = db.prepare(`UPDATE jobs SET created_at = ? WHERE id = ?`);
+        for (const row of rows) {
+            if (typeof row.created_at === "number") continue;
+            const raw = String(row.created_at ?? "");
+            if (/^\d+$/.test(raw)) {
+                const n = Number(raw);
+                // already ms or seconds
+                upd.run(n < 1e12 ? n * 1000 : n, row.id);
+                continue;
+            }
+            const parsed = Date.parse(raw.includes("T") ? raw : raw.replace(" ", "T") + "Z");
+            if (!Number.isNaN(parsed)) {
+                upd.run(parsed, row.id);
+            }
+        }
+    } catch (err) {
+        console.warn("created_at normalize skipped:", err);
+    }
+})();
 
 export type JobRow = {
     id: string;
@@ -33,7 +63,7 @@ export type JobRow = {
     error: string | null;
     public_url: string | null;
     storage_path: string | null;
-    created_at: string;
+    created_at: number | string;
 };
 
 const seededUsers = new Set<string>();
@@ -84,7 +114,7 @@ function ensureUserExists(userId: string) {
             stmtInsertUser.run(
                 userId,
                 "Personal User",
-                `${userId}@localhost`,
+                userId === "personal-user" ? "personal@clippa.in" : `${userId}@localhost`,
                 1,
                 "0",
                 now,
@@ -100,7 +130,7 @@ function ensureUserExists(userId: string) {
 export const dbService = {
     async createJob(id: string, userId: string) {
         ensureUserExists(userId);
-        const createdAt = new Date().toISOString().slice(0, 19).replace("T", " ");
+        const createdAt = Date.now();
         stmtInsertJob.run(id, userId, "processing", createdAt);
     },
 
@@ -152,10 +182,11 @@ export const dbService = {
         return rows.map((r) => r.storage_path).filter(Boolean);
     },
 
-    async cleanupOldJobs(cutoff: string): Promise<Pick<JobRow, "id" | "storage_path">[]> {
-        const rows = stmtSelectOldJobs.all(cutoff) as Pick<JobRow, "id" | "storage_path">[];
+    /** @param cutoffMs unix timestamp in milliseconds */
+    async cleanupOldJobs(cutoffMs: number): Promise<Pick<JobRow, "id" | "storage_path">[]> {
+        const rows = stmtSelectOldJobs.all(cutoffMs) as Pick<JobRow, "id" | "storage_path">[];
         if (rows.length > 0) {
-            stmtDeleteOldJobs.run(cutoff);
+            stmtDeleteOldJobs.run(cutoffMs);
         }
         return rows;
     },

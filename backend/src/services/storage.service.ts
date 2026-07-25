@@ -29,14 +29,6 @@ export const storageService = {
         }
     },
 
-    /** Time-limited HMAC-signed download URL. */
-    async getSignedDownloadUrl(filename: string, downloadName: string) {
-        return buildSignedUploadUrl(BASE_URL, filename, {
-            downloadName,
-            ttlSeconds: DOWNLOAD_URL_TTL_SECONDS,
-        });
-    },
-
     /** Sign an existing public/unsigned upload URL for client download. */
     signPublicUrl(publicUrl: string, downloadName?: string): string {
         try {

@@ -17,14 +17,6 @@ class JobQueue {
         this.concurrency = Math.max(1, concurrency);
     }
 
-    get pending(): number {
-        return this.queue.length;
-    }
-
-    get active(): number {
-        return this.running;
-    }
-
     add<T>(fn: () => Promise<T>): Promise<T> {
         return new Promise<T>((resolve, reject) => {
             this.queue.push({

@@ -1,117 +1,55 @@
 export default function Privacy() {
   return (
-    <div className="max-w-3xl mx-auto py-12 px-4">
-      <h1 className="text-3xl font-bold mb-8">Privacy Policy</h1>
+    <div className="mx-auto max-w-3xl px-4 py-12">
+      <h1 className="mb-8 font-display text-3xl font-semibold tracking-tight">Privacy Policy</h1>
 
-      <section className="space-y-6">
+      <section className="space-y-6 text-muted-foreground">
         <div>
-          <h2 className="text-xl font-semibold mb-3">
-            1. Information We Collect
-          </h2>
+          <h2 className="mb-3 text-xl font-semibold text-foreground">1. What this service is</h2>
           <p>
-            We collect the minimum information required to operate the YouTube
-            Clipper service. This includes your email address for account
-            authentication and the URLs of the YouTube videos you choose to
-            clip. We do <strong>not</strong> collect the actual video content.
+            Clippa is a personal-use YouTube clipping tool. It processes video URLs you
+            provide to create short downloadable clips. There is no public account system
+            or social profile.
           </p>
         </div>
 
         <div>
-          <h2 className="text-xl font-semibold mb-3">
-            2. How We Use Information
-          </h2>
+          <h2 className="mb-3 text-xl font-semibold text-foreground">2. Information we handle</h2>
           <p>
-            Your information is used exclusively to generate and store video
-            clip timestamps, manage your personal library, and improve our
-            product. We never sell or share your data for advertising purposes.
+            We may store the YouTube URLs you submit, clip job status, and a local download
+            counter so the app can finish processing and show progress. Clip files are
+            temporary and cleaned up after a short TTL. We do not sell your data.
           </p>
         </div>
 
         <div>
-          <h2 className="text-xl font-semibold mb-3">3. Cookies</h2>
+          <h2 className="mb-3 text-xl font-semibold text-foreground">3. Cookies and analytics</h2>
           <p>
-            We use cookies to keep you signed in and to remember your
-            preferences. You can disable cookies in your browser settings, but
-            the service may not function correctly without them.
+            Essential app operation may use local storage or cookies. Anonymous product
+            analytics (e.g. Vercel Analytics) may run in production to understand usage.
+            You can block third-party scripts in your browser if you prefer.
           </p>
         </div>
 
         <div>
-          <h2 className="text-xl font-semibold mb-3">
-            4. Third-Party Services
-          </h2>
+          <h2 className="mb-3 text-xl font-semibold text-foreground">4. Third parties</h2>
           <p>
-            We rely on YouTube&#39;s public APIs to fetch video metadata. All
-            interactions remain within the scope permitted by YouTube&#39;s
-            Terms of Service. We also use secure payment processors to handle
-            any premium subscriptions; payment details never touch our servers.
+            Video metadata and media are fetched from YouTube via yt-dlp on the server.
+            Your use of YouTube content remains subject to YouTube&apos;s terms and copyright
+            rules.
           </p>
         </div>
 
         <div>
-          <h2 className="text-xl font-semibold mb-3">5. Data Retention</h2>
+          <h2 className="mb-3 text-xl font-semibold text-foreground">5. Contact</h2>
           <p>
-            Clip data and account details are retained for as long as your
-            account is active. Mail us to delete your account.
-          </p>
-        </div>
-
-        <div>
-          <h2 className="text-xl font-semibold mb-3">6. Your Rights</h2>
-          <p>
-            You have the right to access, export, or request deletion of the
-            data we hold about you. Email
-            <a href="mailto:iamamrit27@gmail.com" className="underline">
-              privacy@ytclipper.app
-            </a>
-            to initiate any request.
-          </p>
-        </div>
-
-        <div>
-          <h2 className="text-xl font-semibold mb-3">7. Security</h2>
-          <p>
-            We employ industry-standard encryption (TLS) for data in transit and
-            store credentials using hashing and salting techniques. While no
-            system is 100% secure, we work hard to protect your information.
-          </p>
-        </div>
-
-        <div>
-          <h2 className="text-xl font-semibold mb-3">
-            8. Children&#39;s Privacy
-          </h2>
-          <p>
-            Our service is not directed to children under 13. We do not
-            knowingly collect personal information from children.
-          </p>
-        </div>
-
-        <div>
-          <h2 className="text-xl font-semibold mb-3">
-            9. Changes to This Policy
-          </h2>
-          <p>
-            We may update this policy periodically. Significant changes will be
-            announced on the website or via email.
-          </p>
-        </div>
-
-        <div>
-          <h2 className="text-xl font-semibold mb-3">10. Contact Us</h2>
-          <p>
-            Questions about privacy? Reach out at
-            <a href="mailto:iamamrit27@gmail.com" className="underline">
+            Questions about this policy:{" "}
+            <a className="text-primary underline-offset-4 hover:underline" href="mailto:iamamrit27@gmail.com">
               iamamrit27@gmail.com
             </a>
-            .
           </p>
         </div>
       </section>
-
-      <p className="mt-8 text-sm text-gray-500">
-        Last updated: {new Date().toLocaleDateString()}
-      </p>
     </div>
   );
 }

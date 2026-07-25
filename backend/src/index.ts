@@ -5,14 +5,9 @@ import { PORT, UPLOADS_DIR } from "./constants";
 import { dbService } from "./services/db.service";
 import { storageService } from "./services/storage.service";
 
-/** Format for SQLite CURRENT_TIMESTAMP comparisons: `YYYY-MM-DD HH:MM:SS` */
-function toSqliteDatetime(date: Date): string {
-  return date.toISOString().slice(0, 19).replace("T", " ");
-}
-
 async function cleanupOldJobsAndFiles() {
-  const cutoff = toSqliteDatetime(new Date(Date.now() - 24 * 60 * 60 * 1000));
-  const removed = await dbService.cleanupOldJobs(cutoff);
+  const cutoffMs = Date.now() - 24 * 60 * 60 * 1000;
+  const removed = await dbService.cleanupOldJobs(cutoffMs);
   for (const job of removed) {
     if (job.storage_path) {
       await storageService.deleteFile(job.storage_path).catch((err) => {

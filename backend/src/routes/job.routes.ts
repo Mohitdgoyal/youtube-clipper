@@ -50,8 +50,11 @@ type JobSnapshot = {
 };
 
 const jobSnapshots = new Map<string, JobSnapshot>();
+/** Jobs that already emitted ready/error — ignore late progress-only publishes */
+const terminalJobs = new Set<string>();
 
-function getOrCreateSnapshot(id: string): JobSnapshot {
+function getOrCreateSnapshot(id: string): JobSnapshot | null {
+    if (terminalJobs.has(id)) return null;
     let snap = jobSnapshots.get(id);
     if (!snap) {
         snap = {
@@ -79,8 +82,40 @@ function snapshotToPayload(snap: JobSnapshot): JobEventPayload {
 }
 
 async function publishJobUpdate(id: string, data: JobUpdate): Promise<void> {
+    const isTerminal =
+        data.status === "ready" || data.status === "error";
+    const progressOnly =
+        data.progress !== undefined &&
+        data.status === undefined &&
+        data.stage === undefined &&
+        data.error === undefined &&
+        data.public_url === undefined &&
+        data.storage_path === undefined;
+
+    // Late throttled progress must not resurrect a finished job as "processing"
+    if (progressOnly && terminalJobs.has(id)) {
+        return;
+    }
+
     await dbService.updateJob(id, data);
-    const snap = getOrCreateSnapshot(id);
+
+    // Merge into snapshot before marking terminal (getOrCreateSnapshot nulls after terminal)
+    const snap = terminalJobs.has(id) ? null : getOrCreateSnapshot(id);
+    if (!snap) {
+        if (isTerminal) {
+            terminalJobs.add(id);
+            jobEvents.emit(id, {
+                status: data.status!,
+                stage: data.stage ?? null,
+                progress: data.progress ?? (data.status === "ready" ? 100 : 0),
+                error: data.error ?? null,
+                url: clientDownloadUrl(data.public_url),
+                storagePath: data.storage_path ?? null,
+            });
+        }
+        return;
+    }
+
     if (data.status !== undefined) snap.status = data.status;
     if (data.stage !== undefined) snap.stage = data.stage ?? null;
     if (data.progress !== undefined) snap.progress = data.progress ?? 0;
@@ -90,6 +125,7 @@ async function publishJobUpdate(id: string, data: JobUpdate): Promise<void> {
     jobEvents.emit(id, snapshotToPayload(snap));
 
     if (snap.status === "ready" || snap.status === "error") {
+        terminalJobs.add(id);
         jobSnapshots.delete(id);
     }
 }
@@ -140,19 +176,20 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
             controller.abort();
         }, 10 * 60 * 1000);
 
+        let lastProgressWrite = 0;
+        let progressChain: Promise<void> = Promise.resolve();
+        const updateProgress = (p: number) => {
+            if (terminalJobs.has(id)) return;
+            const now = Date.now();
+            if (p > 0 && p < 100 && now - lastProgressWrite < 500) return;
+            lastProgressWrite = now;
+            progressChain = progressChain
+                .then(() => publishJobUpdate(id, { progress: p }))
+                .catch((err) => console.warn(`Progress update failed for ${id}:`, err));
+        };
+
         try {
             const durationSeconds = endSec - startSec;
-
-            let lastProgressWrite = 0;
-            let progressChain: Promise<void> = Promise.resolve();
-            const updateProgress = (p: number) => {
-                const now = Date.now();
-                if (p > 0 && p < 100 && now - lastProgressWrite < 500) return;
-                lastProgressWrite = now;
-                progressChain = progressChain
-                    .then(() => publishJobUpdate(id, { progress: p }))
-                    .catch((err) => console.warn(`Progress update failed for ${id}:`, err));
-            };
 
             await publishJobUpdate(id, { stage: "downloading" });
             const {
@@ -236,10 +273,14 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
             await deleteJobArtifacts(id);
         } finally {
             clearTimeout(timeoutId);
+            // Drain in-flight progress before terminal publish so SSE cannot flicker
+            await progressChain.catch(() => undefined);
             await publishJobUpdate(id, finalJobStatus);
             if (finalJobStatus.status === "ready") {
                 scheduleJobCleanup(id, DOWNLOAD_URL_TTL_SECONDS * 1000);
             }
+            // Allow snapshot reuse if the same id is ever recycled (unlikely)
+            setTimeout(() => terminalJobs.delete(id), DOWNLOAD_URL_TTL_SECONDS * 1000 + 60_000).unref?.();
         }
     }).catch((err) => {
         console.error(`Unhandled clip job queue error for ${id}:`, err);
@@ -310,28 +351,6 @@ router.get("/clip/:id/events", async (req, res) => {
     }, 15_000);
 
     req.on("close", cleanup);
-});
-
-router.get("/clip/:id/url", async (req, res) => {
-    const { id } = req.params;
-    const { filename } = req.query;
-
-    if (!filename) {
-        return res.status(400).json({ error: "filename query parameter is required" });
-    }
-
-    const job = await dbService.getJob(id);
-    if (!job || !job.storage_path) {
-        return res.status(404).json({ error: "Job or file not found" });
-    }
-
-    try {
-        const signedUrl = await storageService.getSignedDownloadUrl(job.storage_path, filename as string);
-        return res.json({ url: signedUrl });
-    } catch (error: any) {
-        console.error("Error generating signed URL:", error);
-        return res.status(500).json({ error: error.message });
-    }
 });
 
 router.delete("/clip/:id/cleanup", async (req, res) => {

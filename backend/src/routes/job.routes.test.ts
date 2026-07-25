@@ -1,37 +1,45 @@
-import { describe, it, expect, mock, beforeAll, afterAll } from "bun:test";
+import { describe, it, before } from "node:test";
+import assert from "node:assert/strict";
 import request from "supertest";
-import { app } from "../app";
 import { dbService } from "../services/db.service";
 import { storageService } from "../services/storage.service";
+import { app } from "../app";
 
-// Store original methods to restore later if needed
-beforeAll(() => {
-    // Mock dbService methods
-    dbService.createJob = mock(() => Promise.resolve());
-    dbService.updateJob = mock(() => Promise.resolve());
-    dbService.getJob = mock((id: string) => {
-        console.log("Mock getJob called with:", id);
-        if (id === "existing-job") return Promise.resolve({
-            id: "existing-job",
-            status: "processing",
-            progress: 50,
-            stage: "processing",
-            // Add user_id if needed, assuming auth check is loose or matches
-            user_id: "test-user"
-        } as any);
-        return Promise.resolve(null);
-    });
-    dbService.deleteJob = mock(() => Promise.resolve());
-
-    // Mock storageService methods
-    storageService.finalizeLocalFile = mock(() => Promise.resolve("http://localhost:3001/uploads/file.mp4"));
-    storageService.deleteFile = mock(() => Promise.resolve());
+before(() => {
+    dbService.createJob = async () => {};
+    dbService.updateJob = async () => {};
+    dbService.getJob = async (id: string) => {
+        if (id === "existing-job") {
+            return {
+                id: "existing-job",
+                status: "processing",
+                progress: 50,
+                stage: "processing",
+                user_id: "test-user",
+                error: null,
+                public_url: null,
+                storage_path: null,
+                created_at: Date.now(),
+            } as Awaited<ReturnType<typeof dbService.getJob>>;
+        }
+        if (id === "ready-job") {
+            return {
+                id: "ready-job",
+                status: "ready",
+                progress: 100,
+                stage: "done",
+                user_id: "test-user",
+                error: null,
+                public_url: "http://localhost:3001/uploads/clip.mp4",
+                storage_path: "clip.mp4",
+                created_at: Date.now(),
+            } as Awaited<ReturnType<typeof dbService.getJob>>;
+        }
+        return undefined;
+    };
+    dbService.deleteJob = async () => {};
+    storageService.deleteFile = async () => {};
 });
-
-// afterAll(() => {
-//     dbService.getJob = originalGetJob;
-//     // ... restore others
-// });
 
 const AUTH_HEADER = { Authorization: "Bearer dev-secret" };
 
@@ -41,51 +49,41 @@ describe("Job Routes", () => {
             .post("/api/clip")
             .set(AUTH_HEADER)
             .send({
-                url: "http://youtube.com/watch?v=test",
+                url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
                 startTime: "00:00:10",
                 endTime: "00:00:20",
-                userId: "test-user"
+                userId: "test-user",
             });
 
-        console.log("POST /clip status:", response.status);
-        if (response.status !== 202) console.log("Body:", response.body);
-
-        expect(response.status).toBe(202);
-        expect(response.body.id).toBeDefined();
+        assert.equal(response.status, 202);
+        assert.ok(response.body.id);
     });
 
     it("POST /api/clip validates input", async () => {
-        await request(app)
+        const response = await request(app)
             .post("/api/clip")
             .set(AUTH_HEADER)
-            .send({
-                url: "invalid-url"
-            })
-            .expect(400);
+            .send({ url: "invalid-url" });
+
+        assert.equal(response.status, 400);
     });
 
-    it.skip("GET /api/clip/:id returns job status", async () => {
+    it("GET /api/clip/:id returns job status", async () => {
         const response = await request(app)
             .get("/api/clip/existing-job")
             .set(AUTH_HEADER);
 
-        console.log("GET /clip status:", response.status);
-        console.log("GET /clip body:", response.body);
-
-        expect(response.status).toBe(200);
-        expect(response.body.status).toBe("processing");
-        expect(response.body.progress).toBe(50);
+        assert.equal(response.status, 200);
+        assert.equal(response.body.status, "processing");
+        assert.equal(response.body.progress, 50);
     });
 
-    it.skip("GET /api/clip/:id/download requires job to be ready/exist", async () => {
-        // Mock getJob to return raw object. 
-        // Logic checks status. If processing, might return 400 or wait?
-        // Actually locally download endpoint checks if public_url exists?
-        // Let's modify mock for specific test if needed, or check existing-job result.
-        // existing-job is processing.
-        await request(app)
-            .get("/api/clip/existing-job/download")
-            .set(AUTH_HEADER)
-            .expect(400); // Expect "Job is not ready"
+    it("DELETE /api/clip/:id/cleanup removes job", async () => {
+        const response = await request(app)
+            .delete("/api/clip/ready-job/cleanup")
+            .set(AUTH_HEADER);
+
+        assert.equal(response.status, 200);
+        assert.equal(response.body.success, true);
     });
 });
