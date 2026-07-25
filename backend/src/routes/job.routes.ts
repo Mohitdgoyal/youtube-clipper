@@ -177,14 +177,25 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
         }, 10 * 60 * 1000);
 
         let lastProgressWrite = 0;
+        let lastSentProgress = 0;
         let progressChain: Promise<void> = Promise.resolve();
         const updateProgress = (p: number) => {
             if (terminalJobs.has(id)) return;
+            const next = Math.max(0, Math.min(100, Math.round(p)));
             const now = Date.now();
-            if (p > 0 && p < 100 && now - lastProgressWrite < 500) return;
+            // Never throttle backwards or terminal 100; allow any forward jump ≥2 or after 500ms
+            if (next < 100 && next <= lastSentProgress) return;
+            if (
+                next < 100 &&
+                next - lastSentProgress < 2 &&
+                now - lastProgressWrite < 500
+            ) {
+                return;
+            }
+            lastSentProgress = next;
             lastProgressWrite = now;
             progressChain = progressChain
-                .then(() => publishJobUpdate(id, { progress: p }))
+                .then(() => publishJobUpdate(id, { progress: next }))
                 .catch((err) => console.warn(`Progress update failed for ${id}:`, err));
         };
 

@@ -22,6 +22,8 @@ export function buildCommonYtDlpArgs(extra: string[] = []): string[] {
         "--no-playlist",
         "--no-check-certificates",
         "--no-warnings",
+        // One progress line per update (avoids \\r-only lines that parsers miss)
+        "--newline",
         "--ffmpeg-location", resolveFfmpeg(),
         // Solve YouTube JS challenges (needed for many formats in 2026+)
         "--js-runtimes", "node",

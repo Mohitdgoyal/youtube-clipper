@@ -45,25 +45,51 @@ export async function adjustSubtitleTimestamps(inputPath: string, outputPath: st
     await fs.promises.writeFile(outputPath, adjustedContent, 'utf-8');
 }
 
+function parseFfmpegTimeSeconds(raw: string): number | null {
+    const token = raw.trim();
+    if (!token || token === "N/A") return null;
+    if (token.includes(":")) {
+        const parts = token.split(":").map(Number);
+        if (parts.some((n) => Number.isNaN(n))) return null;
+        if (parts.length === 2) return parts[0] * 60 + parts[1];
+        if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+        return null;
+    }
+    const sec = parseFloat(token);
+    return Number.isFinite(sec) ? sec : null;
+}
+
 function parseDownloadProgress(str: string, sectionDurationSec: number, onProgress?: (n: number) => void) {
     if (!onProgress) return;
 
-    // Native yt-dlp fragment progress
+    // Native yt-dlp fragment progress (stdout or stderr)
     const dlMatch = str.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
     if (dlMatch) {
         onProgress(Math.round(parseFloat(dlMatch[1]) / 2));
         return;
     }
 
-    // --download-sections uses ffmpeg; surface time= so the UI does not sit at 0%
+    // --download-sections delegates to ffmpeg; progress uses time= on one \\r-delimited line
     if (sectionDurationSec > 0) {
-        const timeMatch = str.match(/time=(\d{2}:\d{2}:\d{2}\.\d{2})/);
+        const timeMatch = str.match(/time=(\d+(?:\.\d+)?|\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?)/);
         if (timeMatch) {
-            const parts = timeMatch[1].split(":");
-            const seconds = (+parts[0]) * 3600 + (+parts[1]) * 60 + (+parts[2]);
-            const pct = Math.min(100, Math.round((seconds / sectionDurationSec) * 100));
-            onProgress(Math.round(pct / 2));
+            const seconds = parseFfmpegTimeSeconds(timeMatch[1]);
+            if (seconds != null && seconds >= 0) {
+                const pct = Math.min(100, Math.round((seconds / sectionDurationSec) * 100));
+                onProgress(Math.round(pct / 2));
+            }
         }
+    }
+}
+
+function feedYtDlpOutput(
+    chunk: string,
+    sectionDurationSec: number,
+    onProgress?: (n: number) => void
+) {
+    // ffmpeg progress is often \\r-delimited on a single line; split both separators
+    for (const line of chunk.split(/\r|\n/)) {
+        if (line.trim()) parseDownloadProgress(line, sectionDurationSec, onProgress);
     }
 }
 
@@ -82,11 +108,15 @@ function runYtDlp(
         const yt = spawn(ytDlpPath, ytArgs);
         let stderrData = "";
 
-        yt.stderr.on("data", (data) => {
+        const onChunk = (data: Buffer | string) => {
             const str = data.toString();
             stderrData += str;
-            parseDownloadProgress(str, sectionDurationSec, onProgress);
-        });
+            feedYtDlpOutput(str, sectionDurationSec, onProgress);
+        };
+
+        // MUST drain stdout — unread pipes block yt-dlp once the buffer fills (~64 KiB)
+        yt.stdout.on("data", onChunk);
+        yt.stderr.on("data", onChunk);
 
         const onAbort = () => {
             yt.kill("SIGTERM");
@@ -192,11 +222,33 @@ export const videoService = {
         };
 
         const primaryFormat = formatId?.trim() || SAFE_SECTION_FORMAT;
-        const runOpts = { signal, onProgress, sectionDurationSec };
+
+        let lastReported = 0;
+        let lastRealBump = Date.now();
+        const reportProgress = (p: number) => {
+            const next = Math.max(0, Math.min(100, Math.round(p)));
+            if (next > lastReported) {
+                lastReported = next;
+                lastRealBump = Date.now();
+            }
+            onProgress?.(next);
+        };
+
+        const heartbeat = setInterval(() => {
+            if (signal?.aborted) return;
+            // Slow pulse while yt-dlp/ffmpeg work but emit no parseable lines yet
+            if (Date.now() - lastRealBump > 2500 && lastReported < 49) {
+                lastReported = Math.min(49, lastReported + 1);
+                onProgress?.(lastReported);
+                lastRealBump = Date.now();
+            }
+        }, 2500);
+        heartbeat.unref?.();
+
+        const runOpts = { signal, onProgress: reportProgress, sectionDurationSec };
 
         try {
-            // Heartbeat so long ffmpeg section fetches don't look frozen at 0%
-            onProgress?.(1);
+            reportProgress(1);
             await runYtDlp(ytDlpPath, buildArgs(primaryFormat), runOpts);
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
@@ -209,8 +261,10 @@ export const videoService = {
             console.warn(`[yt-dlp] format "${primaryFormat}" failed; retrying with safe H.264 default`);
             await fs.promises.unlink(outputPath).catch(() => undefined);
             await fs.promises.unlink(`${outputPath}.part`).catch(() => undefined);
-            onProgress?.(2);
+            reportProgress(2);
             await runYtDlp(ytDlpPath, buildArgs(SAFE_SECTION_FORMAT), runOpts);
+        } finally {
+            clearInterval(heartbeat);
         }
 
         return {
@@ -272,15 +326,13 @@ export const videoService = {
         if (onProgress) onProgress(50); // Start processing phase
 
         ff.stderr.on('data', (data) => {
-            const str = data.toString();
-            // Parse time=00:00:05.12
-            const match = str.match(/time=(\d{2}:\d{2}:\d{2}\.\d{2})/);
-            if (match && durationSeconds && onProgress) {
-                const timeStr = match[1];
-                const parts = timeStr.split(':');
-                const seconds = (+parts[0]) * 3600 + (+parts[1]) * 60 + (+parts[2]);
+            for (const line of data.toString().split(/\r|\n/)) {
+                if (!line.trim() || !durationSeconds || !onProgress) continue;
+                const timeMatch = line.match(/time=(\d+(?:\.\d+)?|\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?)/);
+                if (!timeMatch) continue;
+                const seconds = parseFfmpegTimeSeconds(timeMatch[1]);
+                if (seconds == null) continue;
                 const percent = Math.min(100, Math.round((seconds / durationSeconds) * 100));
-                // Map 0-100% of processing to 50-100% overall
                 onProgress(50 + Math.round(percent / 2));
             }
         });
