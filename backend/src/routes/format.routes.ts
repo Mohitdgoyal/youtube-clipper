@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { metadataService } from "../services/metadata.service";
-import { buildFormatList } from "../utils/format-list";
+import { buildFormatsByCodec } from "../utils/format-list";
 import { isAllowedYouTubeUrl } from "../utils/youtube-url";
 import { rateLimit } from "../middleware/rate-limit.middleware";
 
@@ -8,7 +8,7 @@ const router = Router();
 
 const metaRateLimit = rateLimit({ windowMs: 60_000, max: 30, name: "meta" });
 
-/** Combined metadata + formats from a single yt-dlp fetch */
+/** Combined metadata + formats + storyboards from a single yt-dlp fetch */
 router.get("/video", metaRateLimit, async (req, res) => {
     const { url } = req.query;
     if (!url || typeof url !== "string") {
@@ -21,12 +21,18 @@ router.get("/video", metaRateLimit, async (req, res) => {
 
     try {
         const info = await metadataService.getVideoInfo(url);
+        const { formats, availableCodecs, formatsByCodec } = buildFormatsByCodec(info);
+        const storyboards = (info as any).storyboards || (info as any).storyboard || null;
+
         return res.json({
             title: info.title,
             thumbnail: info.thumbnail,
             duration: info.duration,
             webpage_url: info.webpage_url,
-            formats: buildFormatList(info),
+            formats,
+            availableCodecs,
+            formatsByCodec,
+            storyboards,
         });
     } catch (err: any) {
         console.error("Video info error:", err.message);

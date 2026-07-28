@@ -29,6 +29,9 @@ export async function GET(request: Request) {
         image: data.thumbnail,
         duration: data.duration ? secondsToTime(data.duration) : null,
         formats: data.formats || [],
+        availableCodecs: data.availableCodecs || ["h264"],
+        formatsByCodec: data.formatsByCodec || { h264: data.formats || [], vp9: [], av1: [] },
+        storyboards: data.storyboards || null,
       },
       {
         headers: {

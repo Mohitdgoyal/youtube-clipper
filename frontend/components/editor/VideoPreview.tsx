@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { Timer, Scissors } from "lucide-react";
 import { getVideoId, timeToSeconds, secondsToTime } from "@/lib/utils";
-import { TimelineSlider } from "@/components/editor/TimelineSlider";
+import { DragTimeline } from "@/components/editor/DragTimeline";
 import { KeyboardShortcutsInfo } from "@/components/editor/KeyboardShortcutsInfo";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -15,6 +15,7 @@ interface VideoPreviewProps {
     url: string;
     startTime?: string;
     endTime?: string;
+    storyboards?: any;
     onSetStartTime: (time: string, isSeek?: boolean) => void;
     onSetEndTime: (time: string) => void;
 }
@@ -48,6 +49,7 @@ function VideoPreview({
     url,
     startTime = "00:00:00",
     endTime = "00:00:00",
+    storyboards,
     onSetStartTime,
     onSetEndTime
 }: VideoPreviewProps) {
@@ -198,12 +200,13 @@ function VideoPreview({
                         </div>
 
                         <div className="rounded-2xl border border-border/60 bg-muted/20 px-3 py-3">
-                            <TimelineSlider
+                            <DragTimeline
                                 duration={duration}
                                 startTime={startTime}
                                 endTime={endTime}
                                 onValueChange={handleTimelineChange}
                                 videoId={videoId}
+                                storyboards={storyboards}
                             />
                             <div className="mt-2 flex justify-between font-mono text-xs text-muted-foreground">
                                 <span>{startTime}</span>

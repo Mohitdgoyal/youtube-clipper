@@ -1,4 +1,5 @@
 "use client";
+
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -59,8 +60,17 @@ export default function Editor() {
   const [loading, setLoading] = useState(false);
   const [metadata, setMetadata] = useState<{ title?: string }>({});
 
-  const [formats, setFormats] = useState<{ format_id: string, label: string, tbr?: number }[]>([]);
-  const [selectedFormat, setSelectedFormat] = useState<string>('');
+  const [formatsByCodec, setFormatsByCodec] = useState<Record<string, { format_id: string; label: string; tbr?: number }[]>>({
+    h264: [],
+    vp9: [],
+    av1: [],
+  });
+  const [availableCodecs, setAvailableCodecs] = useState<string[]>(["h264", "vp9", "av1"]);
+  const [selectedCodec, setSelectedCodec] = useState<string>("h264");
+  const [formats, setFormats] = useState<{ format_id: string; label: string; tbr?: number }[]>([]);
+  const [selectedFormat, setSelectedFormat] = useState<string>("");
+  const [storyboards, setStoryboards] = useState<any>(null);
+
   const [isMetadataLoading, setIsMetadataLoading] = useState(false);
   const [isBulk, setIsBulk] = useState(false);
   const [bulkTimestamps, setBulkTimestamps] = useState("");
@@ -87,6 +97,13 @@ export default function Editor() {
     progressTimer.current = setTimeout(() => setProgress(next), 150);
   }, [clearProgressTimer]);
 
+  const handleCodecChange = (newCodec: string) => {
+    setSelectedCodec(newCodec);
+    setSelectedFormat(""); // Reset format to "Best available" on codec switch
+    const codecFormats = formatsByCodec[newCodec] || formatsByCodec.h264 || [];
+    setFormats(codecFormats);
+  };
+
   useEffect(() => {
     return () => clearProgressTimer();
   }, [clearProgressTimer]);
@@ -97,7 +114,10 @@ export default function Editor() {
       const reset = () => {
         setMetadata({});
         setFormats([]);
-        setSelectedFormat('');
+        setFormatsByCodec({ h264: [], vp9: [], av1: [] });
+        setAvailableCodecs(["h264", "vp9", "av1"]);
+        setSelectedFormat("");
+        setStoryboards(null);
         setIsMetadataLoading(false);
       };
       const id = setTimeout(reset, 0);
@@ -119,10 +139,19 @@ export default function Editor() {
         if (res.ok) {
           const data = await res.json();
           const nextFormats = data.formats || [];
+          const byCodec = data.formatsByCodec || { h264: nextFormats, vp9: [], av1: [] };
+          const avail = data.availableCodecs || ["h264"];
+
           setMetadata({ title: data.title });
-          setFormats(nextFormats);
-          // Default Best available (backend: up to 1080p60 H.264). Picker uses height selectors, not raw itags.
+          setFormatsByCodec(byCodec);
+          setAvailableCodecs(avail);
+          setStoryboards(data.storyboards || null);
+
+          // Default formats to selected codec
+          const currentCodecFormats = byCodec[selectedCodec] || nextFormats;
+          setFormats(currentCodecFormats);
           setSelectedFormat("");
+
           if (formatsLookLowRes(nextFormats)) {
             const cookies = await fetchCookiesHealth();
             if (cookies && !cookies.ok) {
@@ -139,6 +168,7 @@ export default function Editor() {
           toast.error("Could not load video info. Check the URL and try again.");
           setFormats([]);
           setSelectedFormat("");
+          setStoryboards(null);
           setCookieWarning(null);
         }
       } catch (error) {
@@ -155,7 +185,7 @@ export default function Editor() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [url]);
+  }, [url, selectedCodec]);
 
   const handleCancel = useCallback(async () => {
     const id = activeJobIdRef.current;
@@ -174,7 +204,6 @@ export default function Editor() {
         message?: string;
       };
 
-      // Cancel raced a finish — keep waiting so download can proceed
       if (data.alreadyFinished && data.status === "ready") {
         toast.message(data.message || "Clip already finished — download should start.");
         return;
@@ -192,7 +221,6 @@ export default function Editor() {
         return;
       }
 
-      // Genuine cancel in progress
       stopBulkRef.current = true;
       waitAbortRef.current?.abort();
       toast.message(data.message || "Cancelling — stopping download…");
@@ -231,6 +259,8 @@ export default function Editor() {
     clearProgressTimer();
     setProgress(0);
     setStage("queued");
+
+    const ext = selectedCodec === "vp9" ? "webm" : "mp4";
 
     const lineStatuses: BulkLineStatus[] = jobsToProcess.map((j) => ({
       start: j.start,
@@ -281,6 +311,7 @@ export default function Editor() {
               endTime: job.end,
               subtitles: addSubs,
               formatId: selectedFormat,
+              codec: selectedCodec,
               userId: SESSION_USER.id,
             }),
           });
@@ -299,6 +330,7 @@ export default function Editor() {
 
           const { id } = await kickoff.json();
           activeJobIdRef.current = id;
+          patchLine(i, { jobId: id });
 
           const waitAbort = new AbortController();
           waitAbortRef.current = waitAbort;
@@ -307,18 +339,27 @@ export default function Editor() {
             throw new JobCancelledError();
           }
 
-          const ready = await waitForJob(id, onJobProgress, { signal: waitAbort.signal });
+          const ready = await waitForJob(id, (pData) => {
+            onJobProgress(pData);
+            patchLine(i, { progress: pData.progress, stage: pData.stage || undefined });
+          }, { signal: waitAbort.signal });
 
           const safeTitle = (metadata.title || "clip").replace(/[\\/:"*?<>|]/g, "_");
-          const filename = `${safeTitle} - ${job.start.replace(/:/g, ".")}-${job.end.replace(/:/g, ".")}.mp4`;
-          await triggerDownload(filename, ready.url, id);
-
-          patchLine(i, { status: "ready" });
+          const filename = `${safeTitle} - ${job.start.replace(/:/g, ".")}-${job.end.replace(/:/g, ".")}.${ext}`;
+          
+          patchLine(i, { status: "ready", progress: 100 });
           readyCount++;
 
-          if (jobsToProcess.length > 1) {
-            await new Promise((r) => setTimeout(r, 500));
+          // In single-clip mode, trigger instant download. In bulk mode, trigger staggered download.
+          if (!isBulk) {
+            await triggerDownload(filename, ready.url, id);
+          } else {
+            // Stagger bulk downloads by 800ms to avoid browser popup blocks
+            setTimeout(() => {
+              triggerDownload(filename, ready.url, id);
+            }, i * 800);
           }
+
         } catch (err: unknown) {
           if (err instanceof JobCancelledError || stopBulkRef.current) {
             patchLine(i, { status: "cancelled", error: "Cancelled" });
@@ -341,7 +382,6 @@ export default function Editor() {
           errorCount++;
           toast.error(`${job.start}–${job.end}: ${friendly}`);
 
-          // Single-clip: stop. Bulk: continue-on-error.
           if (!isBulk) throw err;
         } finally {
           activeJobIdRef.current = null;
@@ -384,6 +424,27 @@ export default function Editor() {
     }
   };
 
+  const handleDownloadBulkClip = (index: number) => {
+    const item = bulkLineStatuses[index];
+    if (!item || !item.jobId) return;
+    const safeTitle = (metadata.title || "clip").replace(/[\\/:"*?<>|]/g, "_");
+    const ext = selectedCodec === "vp9" ? "webm" : "mp4";
+    const filename = `${safeTitle} - ${item.start.replace(/:/g, ".")}-${item.end.replace(/:/g, ".")}.${ext}`;
+    triggerDownload(filename, null, item.jobId);
+  };
+
+  const handleCancelBulkClip = async (index: number) => {
+    const item = bulkLineStatuses[index];
+    if (item && item.jobId) {
+      await fetch(`/api/clip/${item.jobId}/cancel`, { method: "POST" }).catch(() => undefined);
+      setBulkLineStatuses((prev) => {
+        const next = [...prev];
+        next[index] = { ...next[index], status: "cancelled", error: "Cancelled" };
+        return next;
+      });
+    }
+  };
+
   return (
     <main className="relative flex min-h-screen w-full flex-col">
       <PingBackend active={loading} />
@@ -417,6 +478,7 @@ export default function Editor() {
             url={url}
             startTime={startTime}
             endTime={endTime}
+            storyboards={storyboards}
             onSetStartTime={setStartTime}
             onSetEndTime={setEndTime}
           />
@@ -427,8 +489,11 @@ export default function Editor() {
             addSubs={addSubs} setAddSubs={setAddSubs}
             loading={loading} handleSubmit={handleSubmit} onCancel={handleCancel}
             formats={formats} selectedFormat={selectedFormat} setSelectedFormat={setSelectedFormat}
+            selectedCodec={selectedCodec} setSelectedCodec={handleCodecChange} availableCodecs={availableCodecs}
             isBulk={isBulk} setIsBulk={setIsBulk} bulkTimestamps={bulkTimestamps} setBulkTimestamps={setBulkTimestamps}
             bulkLineStatuses={bulkLineStatuses}
+            onCancelBulkClip={handleCancelBulkClip}
+            onDownloadBulkClip={handleDownloadBulkClip}
             cookieWarning={cookieWarning}
             progress={progress}
             stage={stage || undefined}

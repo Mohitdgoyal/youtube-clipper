@@ -203,6 +203,9 @@ function runYtDlp(
     });
 }
 
+import { CODEC_CONFIGS, CodecId } from "../utils/codec-config";
+import { getCodecEncoder } from "../utils/ffmpeg-encoder";
+
 export const videoService = {
     async downloadAndClip(id: string, options: {
         url: string,
@@ -210,10 +213,13 @@ export const videoService = {
         endTime: string,
         subtitles?: boolean;
         formatId?: string;
+        codecId?: CodecId;
         signal?: AbortSignal;
         onProgress?: (progress: number) => void;
     }): Promise<ClipDownloadResult> {
-        const outputPath = path.join(UPLOADS_DIR, `clip-${id}.mp4`);
+        const codecId = options.codecId || "h264";
+        const codec = CODEC_CONFIGS[codecId] || CODEC_CONFIGS.h264;
+        const outputPath = path.join(UPLOADS_DIR, `clip-${id}.${codec.container}`);
         const { url, startTime, endTime, subtitles, formatId, signal, onProgress } = options;
         const ytDlpPath = resolveYtDlp();
         const startSec = timeToSeconds(startTime);
@@ -241,7 +247,7 @@ export const videoService = {
                     url,
                     "--download-sections", section,
                     "-o", outputPath,
-                    "--merge-output-format", "mp4",
+                    "--merge-output-format", codec.container,
                     "--concurrent-fragments", CONCURRENT_FRAGMENTS,
                     "--buffer-size", BUFFER_SIZE,
                     "-f", attempt.format,
@@ -339,14 +345,17 @@ export const videoService = {
     async processWithFFmpeg(inputPath: string, outputPath: string, options: {
         subtitles?: boolean,
         subPath?: string,
+        codecId?: CodecId,
         signal?: AbortSignal,
         onProgress?: (progress: number) => void,
         durationSeconds?: number,
         cutStartSec?: number,
     }) {
-        const { subtitles, subPath, signal, onProgress, durationSeconds, cutStartSec = 0 } = options;
+        const { subtitles, subPath, codecId = "h264", signal, onProgress, durationSeconds, cutStartSec = 0 } = options;
         if (signal?.aborted) throw new Error("Aborted");
 
+        const codec = CODEC_CONFIGS[codecId] || CODEC_CONFIGS.h264;
+        const isWebM = codec.container === "webm";
         const ffmpegPath = resolveFfmpeg();
         const burnSubs = !!(subtitles && subPath && fs.existsSync(subPath));
         const ffmpegArgs = ["-y", "-hwaccel", "auto"];
@@ -365,19 +374,32 @@ export const videoService = {
                 .replace(/\\/g, "/")
                 .replace(/:/g, "\\:")
                 .replace(/'/g, "\\'");
-            const { encoder, videoArgs } = getVideoEncoder();
+            const { encoder, videoArgs, audioEncoder, audioArgs } = getCodecEncoder(codecId);
             ffmpegArgs.push(
                 "-vf", `subtitles='${escapedSub}'`,
                 "-c:v", encoder,
                 ...videoArgs,
-                "-c:a", "aac",
+                "-c:a", audioEncoder,
+                ...audioArgs,
+            );
+        } else if (isWebM) {
+            // WebM CANNOT stream copy AAC audio! Must re-encode audio to Opus even during video copy pass
+            ffmpegArgs.push(
+                "-c:v", "copy",
+                "-c:a", "libopus",
                 "-b:a", "128k",
+                "-ar", "48000"
             );
         } else {
             ffmpegArgs.push("-c:v", "copy", "-c:a", "copy", "-threads", "0");
         }
 
-        ffmpegArgs.push("-movflags", "+faststart", outputPath);
+        // -movflags +faststart is ONLY valid for MP4 containers!
+        if (codec.container === "mp4") {
+            ffmpegArgs.push("-movflags", "+faststart");
+        }
+
+        ffmpegArgs.push(outputPath);
 
         const ff = spawn(ffmpegPath, ffmpegArgs);
         if (onProgress) onProgress(burnSubs ? 50 : 90);

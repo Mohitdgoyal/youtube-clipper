@@ -27,14 +27,18 @@ export const SAFE_SECTION_FORMAT =
 
 export const FALLBACK_SECTION_FORMAT = "best[ext=mp4]/best";
 
-export function sectionFormatForHeight(height: number, fps?: number): string {
+import { CODEC_CONFIGS, CodecConfig, CodecId } from "./codec-config";
+
+export function sectionFormatForHeight(height: number, fps?: number, codecId: CodecId = "h264"): string {
+    const codec = CODEC_CONFIGS[codecId] || CODEC_CONFIGS.h264;
     const h = Math.max(144, Math.min(2160, Math.round(height)));
     const f = fps && fps > 30 ? Math.min(60, Math.round(fps)) : undefined;
     const fpsFilter = f ? `[fps<=?${f}]` : "";
+
     return (
-        `bv[ext=mp4][vcodec^=avc1][height<=?${h}]${fpsFilter}+ba[ext=m4a]/` +
-        `best[ext=mp4][height<=?${h}]/` +
-        `best[ext=mp4]/best`
+        `bv[vcodec^=${codec.ytdlpVcodecFilter}][height<=?${h}]${fpsFilter}+${codec.ytdlpAudioFilter}/` +
+        `bv[vcodec^=${codec.ytdlpVcodecFilter}][height<=?${h}]+ba/` +
+        `best[height<=?${h}]/best`
     );
 }
 

@@ -8,11 +8,18 @@ import { motion, AnimatePresence } from "motion/react";
 import { Progress } from "@/components/ui/progress";
 import { useMemo } from "react";
 
+import { BulkQueueDashboard } from "@/components/editor/BulkQueueDashboard";
+
 export type BulkLineStatus = {
     start: string;
     end: string;
-    status: "pending" | "running" | "ready" | "error" | "cancelled" | "skipped";
+    status: "pending" | "queued" | "running" | "ready" | "error" | "cancelled" | "skipped";
     error?: string;
+    progress?: number;
+    stage?: string;
+    jobId?: string;
+    estimatedSize?: string;
+    clipDuration?: number;
 };
 
 interface ClipFormProps {
@@ -33,11 +40,17 @@ interface ClipFormProps {
     formats: { format_id: string; label: string; tbr?: number }[];
     selectedFormat: string;
     setSelectedFormat: (format: string) => void;
+    selectedCodec?: string;
+    setSelectedCodec?: (codec: string) => void;
+    availableCodecs?: string[];
     isBulk: boolean;
     setIsBulk: (bulk: boolean) => void;
     bulkTimestamps: string;
     setBulkTimestamps: (ts: string) => void;
     bulkLineStatuses?: BulkLineStatus[];
+    onCancelBulkClip?: (index: number) => void;
+    onRetryBulkClip?: (index: number) => void;
+    onDownloadBulkClip?: (index: number) => void;
     cookieWarning?: string | null;
 }
 
@@ -246,8 +259,12 @@ export default function ClipForm({
     url, setUrl, startTime, setStartTime, endTime, setEndTime,
     addSubs, setAddSubs, loading, progress = 0, stage = "Processing", handleSubmit, onCancel,
     formats, selectedFormat, setSelectedFormat,
+    selectedCodec = "h264", setSelectedCodec, availableCodecs = ["h264", "vp9", "av1"],
     isBulk, setIsBulk, bulkTimestamps, setBulkTimestamps,
     bulkLineStatuses = [],
+    onCancelBulkClip,
+    onRetryBulkClip,
+    onDownloadBulkClip,
     cookieWarning = null,
 }: ClipFormProps) {
     return (
@@ -255,23 +272,24 @@ export default function ClipForm({
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.25, ease: "easeOut" }}
+            transition={{ duration: 0.28, ease: "easeOut" }}
             onSubmit={handleSubmit}
-            className="surface-panel flex flex-col gap-6 rounded-3xl p-5 sm:p-6"
+            className="flex w-full flex-col gap-6 rounded-3xl border border-border/80 bg-background/85 p-6 shadow-2xl backdrop-blur-xl sm:p-8"
         >
             <div className="flex flex-col gap-3">
-                <Label htmlFor="url" className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                <Label htmlFor="videoUrl" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     YouTube URL
                 </Label>
-                <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-background/70 px-3 py-2 transition-colors focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/15">
-                    <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="group flex h-14 items-center gap-3 rounded-2xl border border-border/80 bg-background/70 px-4 transition-all focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
+                    <Link2 className="h-5 w-5 shrink-0 text-muted-foreground transition-colors group-focus-within:text-primary" />
                     <input
-                        type="text"
-                        id="url"
-                        placeholder="Paste a YouTube link…"
+                        id="videoUrl"
+                        type="url"
                         value={url}
                         onChange={(e) => setUrl(e.target.value)}
+                        placeholder="https://www.youtube.com/watch?v=..."
                         required
+                        disabled={loading}
                         className="w-full bg-transparent px-1 py-2 text-sm outline-none placeholder:text-muted-foreground/70"
                     />
                 </div>
@@ -317,7 +335,7 @@ export default function ClipForm({
                 </div>
 
                 {isBulk ? (
-                    <div className="flex w-full flex-col gap-2">
+                    <div className="flex w-full flex-col gap-3">
                         <Label htmlFor="bulkTimestamps" className="text-xs text-muted-foreground">
                             One range per line (start-end)
                         </Label>
@@ -330,30 +348,12 @@ export default function ClipForm({
                             className="min-h-[120px] w-full rounded-2xl border border-border/80 bg-background/70 p-4 font-mono text-sm outline-none transition-shadow focus:ring-2 focus:ring-primary/20 disabled:opacity-60"
                         />
                         {bulkLineStatuses.length > 0 && (
-                            <ul className="flex flex-col gap-1.5 rounded-2xl border border-border/60 bg-muted/20 p-3 text-xs">
-                                {bulkLineStatuses.map((line, i) => (
-                                    <li key={`${line.start}-${line.end}-${i}`} className="flex items-start justify-between gap-3 font-mono">
-                                        <span className="text-muted-foreground">
-                                            {line.start}–{line.end}
-                                        </span>
-                                        <span
-                                            className={
-                                                line.status === "ready"
-                                                    ? "text-emerald-600 dark:text-emerald-400"
-                                                    : line.status === "error"
-                                                      ? "text-destructive"
-                                                      : line.status === "running"
-                                                        ? "text-primary"
-                                                        : "text-muted-foreground"
-                                            }
-                                            title={line.error}
-                                        >
-                                            {line.status}
-                                            {line.error ? `: ${line.error.slice(0, 40)}` : ""}
-                                        </span>
-                                    </li>
-                                ))}
-                            </ul>
+                            <BulkQueueDashboard
+                                statuses={bulkLineStatuses}
+                                onCancelClip={onCancelBulkClip}
+                                onRetryClip={onRetryBulkClip}
+                                onDownloadClip={onDownloadBulkClip}
+                            />
                         )}
                     </div>
                 ) : (
@@ -389,6 +389,27 @@ export default function ClipForm({
                 </AnimatePresence>
 
                 <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
+                    {/* Codec Selector */}
+                    <div className="flex flex-col gap-2">
+                        <Label htmlFor="codec" className="text-xs font-medium text-muted-foreground">
+                            Codec Format
+                        </Label>
+                        <div className="relative">
+                            <select
+                                id="codec"
+                                value={selectedCodec}
+                                onChange={(e) => setSelectedCodec?.(e.target.value)}
+                                className="h-12 w-full cursor-pointer appearance-none rounded-2xl border border-border/80 bg-background/70 px-4 pr-10 text-sm outline-none transition-shadow focus:ring-2 focus:ring-primary/20"
+                            >
+                                <option value="h264">H.264 (MP4) — Fastest, Compatible</option>
+                                <option value="vp9">VP9 (WebM) — High Quality</option>
+                                <option value="av1">AV1 (MP4) — Best Quality</option>
+                            </select>
+                            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        </div>
+                    </div>
+
+                    {/* Quality Selector */}
                     <div className="flex flex-col gap-2">
                         <Label htmlFor="quality" className="text-xs font-medium text-muted-foreground">
                             Quality

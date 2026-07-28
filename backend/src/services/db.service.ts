@@ -10,8 +10,7 @@ db.pragma("synchronous = NORMAL");
 db.pragma("busy_timeout = 5000");
 
 /**
- * Drizzle owns the canonical schema (user + jobs). This CREATE is a bootstrap
- * fallback only when migrations have not run; column types match integer ms timestamps.
+ * Bootstrap table schema + inline migration for codec column
  */
 db.exec(`
   CREATE TABLE IF NOT EXISTS jobs (
@@ -23,10 +22,17 @@ db.exec(`
     error TEXT,
     public_url TEXT,
     storage_path TEXT,
+    codec TEXT DEFAULT 'h264',
     created_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);
 `);
+
+try {
+    db.exec(`ALTER TABLE jobs ADD COLUMN codec TEXT DEFAULT 'h264'`);
+} catch {
+    // Column already exists
+}
 
 /** One-shot: legacy text created_at → unix ms */
 (() => {
@@ -40,7 +46,6 @@ db.exec(`
             const raw = String(row.created_at ?? "");
             if (/^\d+$/.test(raw)) {
                 const n = Number(raw);
-                // already ms or seconds
                 upd.run(n < 1e12 ? n * 1000 : n, row.id);
                 continue;
             }
@@ -63,6 +68,7 @@ export type JobRow = {
     error: string | null;
     public_url: string | null;
     storage_path: string | null;
+    codec: string | null;
     created_at: number | string;
 };
 
@@ -88,7 +94,7 @@ const stmtInsertUser = (() => {
 })();
 
 const stmtInsertJob = db.prepare(
-    `INSERT INTO jobs (id, user_id, status, created_at) VALUES (?, ?, ?, ?)`
+    `INSERT INTO jobs (id, user_id, status, codec, created_at) VALUES (?, ?, ?, ?, ?)`
 );
 const stmtGetJob = db.prepare(`SELECT * FROM jobs WHERE id = ?`);
 const stmtDeleteJob = db.prepare(`DELETE FROM jobs WHERE id = ?`);
@@ -128,10 +134,10 @@ function ensureUserExists(userId: string) {
 }
 
 export const dbService = {
-    async createJob(id: string, userId: string) {
+    async createJob(id: string, userId: string, codec = "h264") {
         ensureUserExists(userId);
         const createdAt = Date.now();
-        stmtInsertJob.run(id, userId, "processing", createdAt);
+        stmtInsertJob.run(id, userId, "processing", codec, createdAt);
     },
 
     async updateJob(id: string, data: JobUpdate) {

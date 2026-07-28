@@ -15,6 +15,7 @@ import { isAllowedYouTubeUrl } from "../utils/youtube-url";
 import { deleteJobArtifacts } from "../utils/job-files";
 import { rateLimit } from "../middleware/rate-limit.middleware";
 import { JobUpdate } from "../types/job";
+import { CODEC_CONFIGS, CodecId } from "../utils/codec-config";
 
 const router = Router();
 
@@ -156,10 +157,14 @@ function toEventPayload(job: NonNullable<Awaited<ReturnType<typeof dbService.get
 }
 
 router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), async (req, res) => {
-    const { url, startTime, endTime, subtitles, formatId, userId } = req.body || {};
+    const { url, startTime, endTime, subtitles, formatId, userId, codec: reqCodec } = req.body || {};
     if (!url || !startTime || !endTime || !userId) {
         return res.status(400).json({ error: "url, startTime, endTime and userId are required" });
     }
+
+    const codec: CodecId = (reqCodec === "vp9" || reqCodec === "av1") ? reqCodec : "h264";
+    const codecConfig = CODEC_CONFIGS[codec] || CODEC_CONFIGS.h264;
+    const ext = codecConfig.container;
 
     const startSec = timeToSeconds(startTime);
     const endSec = timeToSeconds(endTime);
@@ -175,7 +180,7 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
     const id = createJobId();
 
     try {
-        await dbService.createJob(id, userId);
+        await dbService.createJob(id, userId, codec);
         getOrCreateSnapshot(id);
         await publishJobUpdate(id, { stage: "queued" });
     } catch (error) {
@@ -183,26 +188,13 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
         return res.status(500).json({ error: "Failed to create job" });
     }
 
-    // Register controller before enqueue so cancel works while queued or running
     const controller = new AbortController();
     jobRuntime.register(id, controller);
 
     clipJobQueue
         .add(id, async () => {
-            let finalJobStatus: JobUpdate = {};
-            // Scale with clip length: section download is often ~1× realtime + retries/overhead.
-            // 4 min clip → ~14 min budget; hard cap 30 min.
-            const clipSec = Math.max(1, endSec - startSec);
-            const jobTimeoutMs = Math.min(
-                30 * 60 * 1000,
-                Math.max(10 * 60 * 1000, Math.round(clipSec * 2500) + 4 * 60 * 1000)
-            );
-            const timeoutId = setTimeout(() => {
-                jobRuntime.abort(id, "timeout");
-            }, jobTimeoutMs);
-
-            let lastProgressWrite = 0;
             let lastSentProgress = 0;
+            let lastProgressWrite = 0;
             let progressChain: Promise<void> = Promise.resolve();
             const updateProgress = (p: number) => {
                 if (terminalJobs.has(id)) return;
@@ -218,6 +210,16 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
                     .then(() => publishJobUpdate(id, { progress: next }))
                     .catch((err) => console.warn(`Progress update failed for ${id}:`, err));
             };
+
+            let finalJobStatus: JobUpdate = {};
+            const clipSec = Math.max(1, endSec - startSec);
+            const jobTimeoutMs = Math.min(
+                30 * 60 * 1000,
+                Math.max(10 * 60 * 1000, Math.round(clipSec * 2500) + 4 * 60 * 1000)
+            );
+            const timeoutId = setTimeout(() => {
+                jobRuntime.abort(id, "timeout");
+            }, jobTimeoutMs);
 
             try {
                 if (controller.signal.aborted || jobRuntime.getReason(id) === "user") {
@@ -239,15 +241,15 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
                     endTime,
                     subtitles,
                     formatId,
+                    codecId: codec,
                     signal: controller.signal,
                     onProgress: updateProgress,
                 });
 
-                const storagePath = `clip-${id}.mp4`;
+                const storagePath = `clip-${id}.${ext}`;
                 let publicUrl: string;
 
                 if (!needsPostProcess) {
-                    // Whole-second, no-subs: yt-dlp section is already the final clip
                     await publishJobUpdate(id, { stage: "processing" });
                     const finalPath = path.join(UPLOADS_DIR, storagePath);
                     if (inputPath !== finalPath && fs.existsSync(inputPath)) {
@@ -258,9 +260,8 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
                     await progressChain;
                     publicUrl = storageService.getPublicUrl(storagePath);
                 } else {
-                    // Precise cut and/or subtitles: pad download → ffmpeg stream-copy trim or burn-in
-                    const fastPath = path.join(UPLOADS_DIR, `clip-${id}-fast.mp4`);
-                    const subPath = inputPath.replace(/\.mp4$/, ".en.vtt");
+                    const fastPath = path.join(UPLOADS_DIR, `clip-${id}-fast.${ext}`);
+                    const subPath = inputPath.replace(new RegExp(`\\.${ext}$`), ".en.vtt");
                     const subtitlesExist = !!(subtitles && fs.existsSync(subPath));
 
                     if (subtitlesExist) {
@@ -273,6 +274,7 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
                     await videoService.processWithFFmpeg(inputPath, fastPath, {
                         subtitles: subtitlesExist,
                         subPath: subtitlesExist ? subPath : undefined,
+                        codecId: codec,
                         signal: controller.signal,
                         onProgress: updateProgress,
                         durationSeconds: clipDurationSec || durationSeconds,
@@ -290,7 +292,7 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
 
                     await progressChain;
                     await publishJobUpdate(id, { stage: "uploading" });
-                    publicUrl = await storageService.finalizeLocalFile(`clip-${id}-fast.mp4`, storagePath);
+                    publicUrl = await storageService.finalizeLocalFile(`clip-${id}-fast.${ext}`, storagePath);
                 }
 
                 finalJobStatus = {
