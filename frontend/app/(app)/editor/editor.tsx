@@ -59,7 +59,7 @@ export default function Editor() {
   const [loading, setLoading] = useState(false);
   const [metadata, setMetadata] = useState<{ title?: string }>({});
 
-  const [formats, setFormats] = useState<{ format_id: string, label: string }[]>([]);
+  const [formats, setFormats] = useState<{ format_id: string, label: string, tbr?: number }[]>([]);
   const [selectedFormat, setSelectedFormat] = useState<string>('');
   const [isMetadataLoading, setIsMetadataLoading] = useState(false);
   const [isBulk, setIsBulk] = useState(false);

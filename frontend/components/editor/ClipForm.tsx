@@ -2,10 +2,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowRight, Scissors, Link2, ChevronDown, X } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowRight, Scissors, Link2, ChevronDown, X, Clock, HardDriveDownload } from "lucide-react";
 import { timeToSeconds, secondsToTime } from "@/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { Progress } from "@/components/ui/progress";
+import { useMemo } from "react";
 
 export type BulkLineStatus = {
     start: string;
@@ -29,7 +30,7 @@ interface ClipFormProps {
     handleSubmit: (e: React.FormEvent) => void;
     onCancel?: () => void;
 
-    formats: { format_id: string; label: string }[];
+    formats: { format_id: string; label: string; tbr?: number }[];
     selectedFormat: string;
     setSelectedFormat: (format: string) => void;
     isBulk: boolean;
@@ -110,6 +111,134 @@ function TimeField({
                 </Button>
             </div>
         </div>
+    );
+}
+
+/** Fallback bitrate estimates (kbps) when yt-dlp tbr is unavailable */
+const FALLBACK_BITRATES: Record<string, number> = {
+    "2160p60": 20000, "2160p": 15000,
+    "1440p60": 12000, "1440p": 9000,
+    "1080p60": 8000,  "1080p": 5000,
+    "720p60":  5000,  "720p":  2500,
+    "480p":    1500,  "360p":  800,
+    "240p":    500,   "144p":  300,
+};
+
+/** Audio adds roughly 128 kbps when muxed */
+const AUDIO_BITRATE_KBPS = 128;
+
+function formatDuration(totalSeconds: number): string {
+    if (totalSeconds <= 0) return "0s";
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = Math.floor(totalSeconds % 60);
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+}
+
+function formatFileSize(bytes: number): string {
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatDownloadTime(bytes: number): string {
+    // Assume a conservative 10 Mbps effective download speed
+    const speedBps = 10 * 1024 * 1024 / 8; // 10 Mbps in bytes/s
+    const seconds = bytes / speedBps;
+    if (seconds < 2) return "instant";
+    if (seconds < 60) return `~${Math.ceil(seconds)}s`;
+    const m = Math.floor(seconds / 60);
+    const s = Math.ceil(seconds % 60);
+    return `~${m}m ${s}s`;
+}
+
+function ClipInfoBanner({
+    startTime,
+    endTime,
+    formats,
+    selectedFormat,
+    isBulk,
+}: {
+    startTime: string;
+    endTime: string;
+    formats: { format_id: string; label: string; tbr?: number }[];
+    selectedFormat: string;
+    isBulk: boolean;
+}) {
+    const info = useMemo(() => {
+        const startSec = timeToSeconds(startTime);
+        const endSec = timeToSeconds(endTime);
+        const clipDuration = endSec - startSec;
+
+        if (clipDuration <= 0) return null;
+
+        // Find the selected format's bitrate
+        let bitrateKbps: number | null = null;
+        let qualityLabel = "Best available";
+
+        if (selectedFormat) {
+            const fmt = formats.find((f) => f.format_id === selectedFormat);
+            if (fmt) {
+                qualityLabel = fmt.label;
+                bitrateKbps = fmt.tbr || FALLBACK_BITRATES[fmt.label] || null;
+            }
+        } else {
+            // "Best available" — use the highest resolution format
+            const best = formats[0];
+            if (best) {
+                qualityLabel = best.label;
+                bitrateKbps = best.tbr || FALLBACK_BITRATES[best.label] || null;
+            }
+        }
+
+        // Add audio bitrate estimate
+        const totalBitrateKbps = bitrateKbps ? bitrateKbps + AUDIO_BITRATE_KBPS : null;
+        const estimatedBytes = totalBitrateKbps
+            ? (totalBitrateKbps * 1000 / 8) * clipDuration
+            : null;
+
+        return {
+            clipDuration,
+            durationFormatted: formatDuration(clipDuration),
+            estimatedSize: estimatedBytes ? formatFileSize(estimatedBytes) : null,
+            estimatedTime: estimatedBytes ? formatDownloadTime(estimatedBytes) : null,
+            qualityLabel,
+        };
+    }, [startTime, endTime, formats, selectedFormat]);
+
+    if (!info || isBulk) return null;
+
+    return (
+        <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="overflow-hidden"
+        >
+            <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-muted/25 px-4 py-2.5">
+                <div className="flex flex-1 items-center gap-2">
+                    <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="text-sm font-medium tabular-nums text-foreground">
+                        {info.durationFormatted}
+                    </span>
+                </div>
+                {info.estimatedSize && (
+                    <div className="flex items-center gap-2 border-l border-border/50 pl-3">
+                        <HardDriveDownload className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span className="text-sm tabular-nums text-muted-foreground">
+                            {info.estimatedSize}
+                        </span>
+                        <span className="text-xs text-muted-foreground/70">·</span>
+                        <span className="text-xs text-muted-foreground/70">
+                            {info.estimatedTime}
+                        </span>
+                    </div>
+                )}
+            </div>
+        </motion.div>
     );
 }
 
@@ -248,6 +377,16 @@ export default function ClipForm({
                         />
                     </div>
                 )}
+
+                <AnimatePresence>
+                    <ClipInfoBanner
+                        startTime={startTime}
+                        endTime={endTime}
+                        formats={formats}
+                        selectedFormat={selectedFormat}
+                        isBulk={isBulk}
+                    />
+                </AnimatePresence>
 
                 <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="flex flex-col gap-2">

@@ -4,6 +4,7 @@ import { sectionFormatForHeight } from "./yt-dlp-args";
 export interface FormatInfo {
     format_id: string;
     label: string;
+    tbr?: number; // total bitrate in kbps (video + audio combined estimate)
 }
 
 /** Build deduped height labels for the editor format picker from yt-dlp -j output. */
@@ -15,6 +16,7 @@ export function buildFormatList(info: YtDlpOutput): FormatInfo[] {
         label: string;
         height: number;
         fps: number;
+        tbr: number;
     };
 
     const videoFormats = info.formats
@@ -37,13 +39,18 @@ export function buildFormatList(info: YtDlpOutput): FormatInfo[] {
                 label: `${height}p${fps || ""}`,
                 height,
                 fps,
+                tbr: f.tbr || 0,
             };
         })
         .sort((a, b) => b.height - a.height || b.fps - a.fps);
 
     const byLabel = new Map<string, Processed>();
     for (const current of videoFormats) {
-        if (!byLabel.has(current.label)) {
+        const existing = byLabel.get(current.label);
+        if (!existing) {
+            byLabel.set(current.label, current);
+        } else if (current.tbr > existing.tbr) {
+            // Keep the highest bitrate variant for better estimation
             byLabel.set(current.label, current);
         }
     }
@@ -51,5 +58,6 @@ export function buildFormatList(info: YtDlpOutput): FormatInfo[] {
     return Array.from(byLabel.values()).map((f) => ({
         format_id: f.format_id,
         label: f.label,
+        ...(f.tbr > 0 ? { tbr: Math.round(f.tbr) } : {}),
     }));
 }
