@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -20,13 +20,29 @@ export function BulkQueueDashboard({
     onRetryClip,
     onDownloadClip,
 }: BulkQueueDashboardProps) {
-    if (!statuses || statuses.length === 0) return null;
+    const { completedCount, totalCount, overallProgress } = useMemo(() => {
+        if (!statuses || statuses.length === 0) {
+            return { completedCount: 0, totalCount: 0, overallProgress: 0 };
+        }
+        const total = statuses.length;
+        let completed = 0;
+        let progressSum = 0;
+        for (const s of statuses) {
+            if (s.status === "ready") {
+                completed++;
+                progressSum += 100;
+            } else {
+                progressSum += s.progress || 0;
+            }
+        }
+        return {
+            completedCount: completed,
+            totalCount: total,
+            overallProgress: Math.round(progressSum / total)
+        };
+    }, [statuses]);
 
-    const completedCount = statuses.filter((s) => s.status === "ready").length;
-    const totalCount = statuses.length;
-    const overallProgress = Math.round(
-        statuses.reduce((acc, s) => acc + (s.status === "ready" ? 100 : (s.progress || 0)), 0) / totalCount
-    );
+    if (!statuses || statuses.length === 0) return null;
 
     return (
         <div className="flex w-full flex-col gap-3 rounded-2xl border border-border/80 bg-muted/20 p-4">

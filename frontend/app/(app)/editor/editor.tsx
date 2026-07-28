@@ -7,6 +7,7 @@ import { motion } from "motion/react";
 import { toast } from "sonner";
 import VideoPreview from "@/components/editor/VideoPreview";
 import ClipForm, { type BulkLineStatus } from "@/components/editor/ClipForm";
+import { type StoryboardSpec } from "@/components/editor/ThumbnailStrip";
 import PingBackend from "@/components/ping-backend";
 import {
   CookieHealthChip,
@@ -69,7 +70,7 @@ export default function Editor() {
   const [selectedCodec, setSelectedCodec] = useState<string>("h264");
   const [formats, setFormats] = useState<{ format_id: string; label: string; tbr?: number }[]>([]);
   const [selectedFormat, setSelectedFormat] = useState<string>("");
-  const [storyboards, setStoryboards] = useState<any>(null);
+  const [storyboards, setStoryboards] = useState<StoryboardSpec[] | Record<string, StoryboardSpec> | null>(null);
 
   const [isMetadataLoading, setIsMetadataLoading] = useState(false);
   const [isBulk, setIsBulk] = useState(false);
@@ -262,107 +263,118 @@ export default function Editor() {
     };
 
     try {
-      await Promise.all(jobsToProcess.map(async (job, i) => {
-        if (stopBulkRef.current) {
-          patchLine(i, { status: "skipped" });
-          cancelledCount++;
-          return;
-        }
+      const CONCURRENCY = 5;
+      let jobIndex = 0;
 
-        if (!isBulk) {
-            clearProgressTimer();
-            setProgress(0);
-            setStage("queued");
-        }
-        patchLine(i, { status: "running", error: undefined });
-        if (jobsToProcess.length > 1) {
-          toast.info(`Processing clip ${i + 1}/${jobsToProcess.length}: ${job.start}–${job.end}`);
-        }
+      const processWorker = async () => {
+        while (jobIndex < jobsToProcess.length) {
+          const i = jobIndex++;
+          const job = jobsToProcess[i];
 
-        let currentId: string | null = null;
-        try {
-          const kickoff = await fetch("/api/clip", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              url,
-              startTime: job.start,
-              endTime: job.end,
-              subtitles: addSubs,
-              formatId: selectedFormat,
-              codec: selectedCodec,
-              userId: SESSION_USER.id,
-            }),
-          });
-
-          if (!kickoff.ok) {
-            const errorText = await kickoff.text();
-            let errorMsg = "Failed to start processing";
-            try {
-              const errorJson = JSON.parse(errorText);
-              errorMsg = errorJson.error || errorMsg;
-            } catch {
-              if (errorText.length > 0) errorMsg = errorText;
-            }
-            throw new Error(errorMsg);
-          }
-
-          const { id } = await kickoff.json();
-          currentId = id;
-          activeJobIdsRef.current.add(id);
-          patchLine(i, { jobId: id });
-
-          const waitAbort = new AbortController();
-          waitAbortRefs.current.set(i, waitAbort);
-          
           if (stopBulkRef.current) {
-            await fetch(`/api/clip/${id}/cancel`, { method: "POST" }).catch(() => undefined);
-            throw new JobCancelledError();
+            patchLine(i, { status: "skipped" });
+            cancelledCount++;
+            continue;
           }
-
-          const ready = await waitForJob(id, (pData) => {
-            if (!isBulk) onJobProgress(pData);
-            patchLine(i, { progress: pData.progress, stage: pData.stage || undefined });
-          }, { signal: waitAbort.signal });
-
-          const safeTitle = (metadata.title || "clip").replace(/[\\/:"*?<>|]/g, "_");
-          const filename = `${safeTitle} - ${job.start.replace(/:/g, ".")}-${job.end.replace(/:/g, ".")}.${ext}`;
-          
-          patchLine(i, { status: "ready", progress: 100 });
-          readyCount++;
 
           if (!isBulk) {
-            await triggerDownload(filename, ready.url, id);
-          } else {
-            setTimeout(() => {
-              triggerDownload(filename, ready.url, id);
-            }, i * 800);
+              clearProgressTimer();
+              setProgress(0);
+              setStage("queued");
+          }
+          patchLine(i, { status: "running", error: undefined });
+          if (jobsToProcess.length > 1) {
+            toast.info(`Processing clip ${i + 1}/${jobsToProcess.length}: ${job.start}–${job.end}`);
           }
 
-        } catch (err: unknown) {
-          if (err instanceof JobCancelledError || stopBulkRef.current) {
-            patchLine(i, { status: "cancelled", error: "Cancelled" });
-            cancelledCount++;
-            return;
+          let currentId: string | null = null;
+          try {
+            const kickoff = await fetch("/api/clip", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                url,
+                startTime: job.start,
+                endTime: job.end,
+                subtitles: addSubs,
+                formatId: selectedFormat,
+                codec: selectedCodec,
+                userId: SESSION_USER.id,
+              }),
+            });
+
+            if (!kickoff.ok) {
+              const errorText = await kickoff.text();
+              let errorMsg = "Failed to start processing";
+              try {
+                const errorJson = JSON.parse(errorText);
+                errorMsg = errorJson.error || errorMsg;
+              } catch {
+                if (errorText.length > 0) errorMsg = errorText;
+              }
+              throw new Error(errorMsg);
+            }
+
+            const { id } = await kickoff.json();
+            currentId = id;
+            activeJobIdsRef.current.add(id);
+            patchLine(i, { jobId: id });
+
+            const waitAbort = new AbortController();
+            waitAbortRefs.current.set(i, waitAbort);
+            
+            if (stopBulkRef.current) {
+              await fetch(`/api/clip/${id}/cancel`, { method: "POST" }).catch(() => undefined);
+              throw new JobCancelledError();
+            }
+
+            const ready = await waitForJob(id, (pData) => {
+              if (!isBulk) onJobProgress(pData);
+              patchLine(i, { progress: pData.progress, stage: pData.stage || undefined });
+            }, { signal: waitAbort.signal });
+
+            const safeTitle = (metadata.title || "clip").replace(/[\\/:"*?<>|]/g, "_");
+            const filename = `${safeTitle} - ${job.start.replace(/:/g, ".")}-${job.end.replace(/:/g, ".")}.${ext}`;
+            
+            patchLine(i, { status: "ready", progress: 100 });
+            readyCount++;
+
+            if (!isBulk) {
+              await triggerDownload(filename, ready.url, id);
+            } else {
+              setTimeout(() => {
+                triggerDownload(filename, ready.url, id);
+              }, i * 800);
+            }
+
+          } catch (err: unknown) {
+            if (err instanceof JobCancelledError || stopBulkRef.current) {
+              patchLine(i, { status: "cancelled", error: "Cancelled" });
+              cancelledCount++;
+              continue;
+            }
+
+            const raw = err instanceof Error ? err.message : "Failed to create clip";
+            const friendly = raw.includes("ERROR:")
+              ? raw.split("ERROR:").pop()!.trim().slice(0, 180)
+              : raw.length > 220
+                ? `${raw.slice(0, 200)}…`
+                : raw;
+
+            patchLine(i, { status: "error", error: friendly });
+            errorCount++;
+            toast.error(`${job.start}–${job.end}: ${friendly}`);
+
+            if (!isBulk) throw err;
+          } finally {
+            if (currentId) activeJobIdsRef.current.delete(currentId);
+            waitAbortRefs.current.delete(i);
           }
-
-          const raw = err instanceof Error ? err.message : "Failed to create clip";
-          const friendly = raw.includes("ERROR:")
-            ? raw.split("ERROR:").pop()!.trim().slice(0, 180)
-            : raw.length > 220
-              ? `${raw.slice(0, 200)}…`
-              : raw;
-
-          patchLine(i, { status: "error", error: friendly });
-          errorCount++;
-          toast.error(`${job.start}–${job.end}: ${friendly}`);
-
-          if (!isBulk) throw err;
-        } finally {
-          if (currentId) activeJobIdsRef.current.delete(currentId);
-          waitAbortRefs.current.delete(i);
         }
-      }));
+      };
+
+      const workers = Array.from({ length: Math.min(CONCURRENCY, jobsToProcess.length) }, processWorker);
+      await Promise.all(workers);
 
       if (jobsToProcess.length === 1 && readyCount === 1 && !isBulk) {
         toast.success("Clip ready — download started");

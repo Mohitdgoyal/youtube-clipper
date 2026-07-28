@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { cn, timeToSeconds, secondsToTime } from "@/lib/utils";
-import { ThumbnailStrip } from "@/components/editor/ThumbnailStrip";
+import { ThumbnailStrip, type StoryboardSpec } from "@/components/editor/ThumbnailStrip";
 
 interface DragTimelineProps {
     duration: number;
@@ -12,7 +12,7 @@ interface DragTimelineProps {
     onValueChange: (start: string, end: string) => void;
     className?: string;
     videoId?: string;
-    storyboards?: any;
+    storyboards?: StoryboardSpec[] | Record<string, StoryboardSpec>;
 }
 
 export function DragTimeline({
@@ -96,14 +96,14 @@ export function DragTimeline({
     };
 
     const handlePointerUp = (e: React.PointerEvent) => {
-        if (isDragging) {
-            try {
+        try {
+            if (e.currentTarget.hasPointerCapture(e.pointerId)) {
                 e.currentTarget.releasePointerCapture(e.pointerId);
-            } catch {
-                // Ignore capture release errors
             }
-            setIsDragging(null);
+        } catch {
+            // Ignore capture release errors
         }
+        setIsDragging(null);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent, target: "start" | "end") => {

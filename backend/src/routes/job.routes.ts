@@ -156,7 +156,7 @@ function toEventPayload(job: NonNullable<Awaited<ReturnType<typeof dbService.get
     };
 }
 
-router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), async (req, res) => {
+router.post("/clip", rateLimit({ windowMs: 60_000, max: 60, name: "clip" }), async (req, res) => {
     const { url, startTime, endTime, subtitles, formatId, userId, codec: reqCodec } = req.body || {};
     if (!url || !startTime || !endTime || !userId) {
         return res.status(400).json({ error: "url, startTime, endTime and userId are required" });
@@ -195,7 +195,6 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
         .add(id, async () => {
             let lastSentProgress = 0;
             let lastProgressWrite = 0;
-            let progressChain: Promise<void> = Promise.resolve();
             const updateProgress = (p: number) => {
                 if (terminalJobs.has(id)) return;
                 const next = Math.max(0, Math.min(100, Math.round(p)));
@@ -206,9 +205,8 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
                 }
                 lastSentProgress = next;
                 lastProgressWrite = now;
-                progressChain = progressChain
-                    .then(() => publishJobUpdate(id, { progress: next }))
-                    .catch((err) => console.warn(`Progress update failed for ${id}:`, err));
+                publishJobUpdate(id, { progress: next })
+                    .catch((err: unknown) => console.warn(`Progress update failed for ${id}:`, err));
             };
 
             let finalJobStatus: JobUpdate = {};
@@ -257,7 +255,6 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
                     }
                     lastProgressWrite = 0;
                     updateProgress(100);
-                    await progressChain;
                     publicUrl = storageService.getPublicUrl(storagePath);
                 } else {
                     const fastPath = path.join(UPLOADS_DIR, `clip-${id}-fast.${ext}`);
@@ -290,7 +287,6 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
                         });
                     }
 
-                    await progressChain;
                     await publishJobUpdate(id, { stage: "uploading" });
                     publicUrl = await storageService.finalizeLocalFile(`clip-${id}-fast.${ext}`, storagePath);
                 }
@@ -302,8 +298,8 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
                     stage: "done",
                     progress: 100,
                 };
-            } catch (err: any) {
-                const message = err?.message || String(err);
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : String(err);
                 const abortReason = jobRuntime.getReason(id);
                 // Cancel raced a finish: another path already published ready/error
                 if (terminalJobs.has(id)) {
@@ -328,8 +324,6 @@ router.post("/clip", rateLimit({ windowMs: 60_000, max: 10, name: "clip" }), asy
             } finally {
                 clearTimeout(timeoutId);
                 jobRuntime.unregister(id);
-                // Drain in-flight progress before terminal publish so SSE cannot flicker
-                await progressChain.catch(() => undefined);
                 // Skip if cancel/finish already published a terminal status
                 if (!terminalJobs.has(id) && finalJobStatus.status) {
                     await publishJobUpdate(id, finalJobStatus);

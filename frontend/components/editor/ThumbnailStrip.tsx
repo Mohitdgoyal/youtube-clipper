@@ -4,9 +4,19 @@ import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { secondsToTime } from "@/lib/utils";
 
+export interface StoryboardSpec {
+    url: string;
+    width?: number;
+    height?: number;
+    cols?: number;
+    rows?: number;
+    count?: number;
+    interval?: number;
+}
+
 interface ThumbnailStripProps {
     duration: number;
-    storyboards?: any;
+    storyboards?: StoryboardSpec[] | Record<string, StoryboardSpec>;
     trackRef: React.RefObject<HTMLDivElement | null>;
 }
 
@@ -30,36 +40,43 @@ export function ThumbnailStrip({ duration, storyboards, trackRef }: ThumbnailStr
         const track = trackRef.current;
         if (!track) return;
 
+        // Memoize values outside the high-frequency mousemove handler
+        const width = bestSpec.width || 800;
+        const height = bestSpec.height || 450;
+        const cols = bestSpec.cols || 5;
+        const rows = bestSpec.rows || 5;
+        const count = bestSpec.count || 100;
+        const interval = bestSpec.interval || (duration / count);
+        
+        const thumbW = Math.round(width / cols);
+        const thumbH = Math.round(height / rows);
+        const thumbsPerSheet = cols * rows;
+
+        // Pre-compute URL template type
+        let urlTemplateType = 0; // 0: no match, 1: $N, 2: %d, 3: (M)\d+(\.\w+)
+        if (bestSpec.url.includes("$N")) urlTemplateType = 1;
+        else if (bestSpec.url.includes("%d")) urlTemplateType = 2;
+        else if (/(M)\d+(\.\w+)/i.test(bestSpec.url)) urlTemplateType = 3;
+
         const handleMouseMove = (e: MouseEvent) => {
             const rect = track.getBoundingClientRect();
             const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
             const pct = x / rect.width;
             const hoverTime = pct * duration;
 
-            const width = bestSpec.width || 800;
-            const height = bestSpec.height || 450;
-            const cols = bestSpec.cols || 5;
-            const rows = bestSpec.rows || 5;
-            const count = bestSpec.count || 100;
-            const interval = bestSpec.interval || (duration / count);
-
             const thumbIndex = Math.floor(hoverTime / (interval || 5));
-            const thumbsPerSheet = cols * rows;
             const sheetIndex = Math.floor(thumbIndex / thumbsPerSheet);
             const localIndex = thumbIndex % thumbsPerSheet;
 
             const col = localIndex % cols;
             const row = Math.floor(localIndex / cols);
 
-            const thumbW = Math.round(width / cols);
-            const thumbH = Math.round(height / rows);
-
             let imgUrl = bestSpec.url;
-            if (imgUrl.includes("$N")) {
+            if (urlTemplateType === 1) {
                 imgUrl = imgUrl.replace("$N", String(sheetIndex));
-            } else if (imgUrl.includes("%d")) {
+            } else if (urlTemplateType === 2) {
                 imgUrl = imgUrl.replace("%d", String(sheetIndex));
-            } else {
+            } else if (urlTemplateType === 3) {
                 imgUrl = imgUrl.replace(/(M)\d+(\.\w+)/i, `$1${sheetIndex}$2`);
             }
 
