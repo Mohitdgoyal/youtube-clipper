@@ -94,7 +94,7 @@ const stmtInsertUser = (() => {
 })();
 
 const stmtInsertJob = db.prepare(
-    `INSERT INTO jobs (id, user_id, status, codec, created_at) VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO jobs (id, user_id, status, stage, progress, error, public_url, storage_path, codec, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 );
 const stmtGetJob = db.prepare(`SELECT * FROM jobs WHERE id = ?`);
 const stmtDeleteJob = db.prepare(`DELETE FROM jobs WHERE id = ?`);
@@ -137,7 +137,7 @@ export const dbService = {
     async createJob(id: string, userId: string, codec = "h264") {
         ensureUserExists(userId);
         const createdAt = Date.now();
-        stmtInsertJob.run(id, userId, "processing", codec, createdAt);
+        stmtInsertJob.run(id, userId, "processing", null, 0, null, null, null, codec, createdAt);
     },
 
     async updateJob(id: string, data: JobUpdate) {

@@ -35,12 +35,13 @@ async function cleanupTempUploads() {
     const isTemp =
       name.endsWith(".vtt") ||
       name.includes("-fast.mp4") ||
+      name.includes("-fast.webm") ||
       name.includes("-adjusted.vtt") ||
       name.endsWith(".part") ||
       /\.f\d+\./.test(name);
 
     const isOrphanClip =
-      /^clip-[a-f0-9]+\.mp4$/i.test(name) && !knownPaths.has(name);
+      /^clip-[a-f0-9]+\.(mp4|webm)$/i.test(name) && !knownPaths.has(name);
 
     if (!isTemp && !isOrphanClip) continue;
 

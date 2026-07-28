@@ -442,6 +442,20 @@ router.get("/clip/:id", async (req, res) => {
     });
 });
 
+router.get("/clip/:id/download", async (req, res) => {
+    const job = await dbService.getJob(req.params.id);
+    if (!job || !job.storage_path || !fs.existsSync(job.storage_path)) {
+        return res.status(404).json({ error: "File not found" });
+    }
+
+    const ext = job.codec === "vp9" ? ".webm" : ".mp4";
+    const contentType = ext === ".webm" ? "video/webm" : "video/mp4";
+    const filename = (req.query.filename as string) || `clip${ext}`;
+
+    res.setHeader("Content-Type", contentType);
+    return res.download(job.storage_path, filename);
+});
+
 router.get("/clip/:id/events", async (req, res) => {
     const job = await dbService.getJob(req.params.id);
     if (!job) return res.status(404).json({ error: "job not found" });

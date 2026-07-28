@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { secondsToTime } from "@/lib/utils";
 
@@ -26,50 +26,63 @@ export function ThumbnailStrip({ duration, storyboards, trackRef }: ThumbnailStr
     const bestSpec = specList[specList.length - 1];
     if (!bestSpec || !bestSpec.url) return null;
 
-    const handleMouseMove = (e: React.MouseEvent) => {
-        if (!trackRef.current) return;
-        const rect = trackRef.current.getBoundingClientRect();
-        const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-        const pct = x / rect.width;
-        const hoverTime = pct * duration;
+    useEffect(() => {
+        const track = trackRef.current;
+        if (!track) return;
 
-        const width = bestSpec.width || 800;
-        const height = bestSpec.height || 450;
-        const cols = bestSpec.cols || 5;
-        const rows = bestSpec.rows || 5;
-        const count = bestSpec.count || 100;
-        const interval = bestSpec.interval || (duration / count);
+        const handleMouseMove = (e: MouseEvent) => {
+            const rect = track.getBoundingClientRect();
+            const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+            const pct = x / rect.width;
+            const hoverTime = pct * duration;
 
-        const thumbIndex = Math.floor(hoverTime / (interval || 5));
-        const thumbsPerSheet = cols * rows;
-        const sheetIndex = Math.floor(thumbIndex / thumbsPerSheet);
-        const localIndex = thumbIndex % thumbsPerSheet;
+            const width = bestSpec.width || 800;
+            const height = bestSpec.height || 450;
+            const cols = bestSpec.cols || 5;
+            const rows = bestSpec.rows || 5;
+            const count = bestSpec.count || 100;
+            const interval = bestSpec.interval || (duration / count);
 
-        const col = localIndex % cols;
-        const row = Math.floor(localIndex / cols);
+            const thumbIndex = Math.floor(hoverTime / (interval || 5));
+            const thumbsPerSheet = cols * rows;
+            const sheetIndex = Math.floor(thumbIndex / thumbsPerSheet);
+            const localIndex = thumbIndex % thumbsPerSheet;
 
-        const thumbW = Math.round(width / cols);
-        const thumbH = Math.round(height / rows);
+            const col = localIndex % cols;
+            const row = Math.floor(localIndex / cols);
 
-        // Multi-sheet URL replacement preserving query params & format templates
-        let imgUrl = bestSpec.url;
-        if (imgUrl.includes("$N")) {
-            imgUrl = imgUrl.replace("$N", String(sheetIndex));
-        } else if (imgUrl.includes("%d")) {
-            imgUrl = imgUrl.replace("%d", String(sheetIndex));
-        } else {
-            imgUrl = imgUrl.replace(/(M)\d+(\.\w+)/i, `$1${sheetIndex}$2`);
-        }
+            const thumbW = Math.round(width / cols);
+            const thumbH = Math.round(height / rows);
 
-        const bgPos = `-${col * thumbW}px -${row * thumbH}px`;
-        const popoverWidth = 144;
-        const safeX = Math.max(popoverWidth / 2, Math.min(rect.width - popoverWidth / 2, x));
+            let imgUrl = bestSpec.url;
+            if (imgUrl.includes("$N")) {
+                imgUrl = imgUrl.replace("$N", String(sheetIndex));
+            } else if (imgUrl.includes("%d")) {
+                imgUrl = imgUrl.replace("%d", String(sheetIndex));
+            } else {
+                imgUrl = imgUrl.replace(/(M)\d+(\.\w+)/i, `$1${sheetIndex}$2`);
+            }
 
-        setHoverInfo({ x: safeX, time: hoverTime, bgPos, imgUrl, thumbW, thumbH });
-    };
+            const bgPos = `-${col * thumbW}px -${row * thumbH}px`;
+            const popoverWidth = 144;
+            const safeX = Math.max(popoverWidth / 2, Math.min(rect.width - popoverWidth / 2, x));
+
+            setHoverInfo({ x: safeX, time: hoverTime, bgPos, imgUrl, thumbW, thumbH });
+        };
+
+        const handleMouseLeave = () => setHoverInfo(null);
+
+        track.addEventListener("mousemove", handleMouseMove);
+        track.addEventListener("mouseleave", handleMouseLeave);
+
+        return () => {
+            track.removeEventListener("mousemove", handleMouseMove);
+            track.removeEventListener("mouseleave", handleMouseLeave);
+        };
+    }, [trackRef, duration, bestSpec]);
 
     return (
-        <div className="relative w-full pointer-events-none" onMouseMove={handleMouseMove} onMouseLeave={() => setHoverInfo(null)}>
+        <div className="relative w-full pointer-events-none">
             <AnimatePresence>
                 {hoverInfo && (
                     <motion.div
