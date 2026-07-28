@@ -74,9 +74,11 @@ function VideoPreview({
         }
     }, [onSetEndTime]);
 
+    const lastSeekTime = useRef(0);
     const seekTo = (seconds: number) => {
-        if (playerRef.current) {
+        if (playerRef.current && Date.now() - lastSeekTime.current > 150) {
             playerRef.current.seekTo(seconds, true);
+            lastSeekTime.current = Date.now();
         }
     };
 
@@ -91,6 +93,11 @@ function VideoPreview({
         }
     };
 
+    const isPlayingRef = useRef(isPlaying);
+    useEffect(() => {
+        isPlayingRef.current = isPlaying;
+    }, [isPlaying]);
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
@@ -99,9 +106,9 @@ function VideoPreview({
             switch (e.key.toLowerCase()) {
                 case ' ':
                     e.preventDefault();
-                    if (isPlaying) playerRef.current.pauseVideo();
+                    if (isPlayingRef.current) playerRef.current.pauseVideo();
                     else playerRef.current.playVideo();
-                    setIsPlaying(!isPlaying);
+                    setIsPlaying(!isPlayingRef.current);
                     break;
                 case 'i':
                     handleCaptureStart();
@@ -128,7 +135,7 @@ function VideoPreview({
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [duration, isPlaying, handleCaptureStart, handleCaptureEnd]);
+    }, [duration, handleCaptureStart, handleCaptureEnd]);
 
     return (
         <AnimatePresence mode="wait">

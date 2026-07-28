@@ -1,6 +1,6 @@
 /**
  * App origin resolution:
- * 1) localStorage.clipperAppBase (set via extension options or youtube.com console)
+ * 1) chrome.storage.sync.clipperAppBase (set via extension options)
  * 2) http://localhost:3000 in development (default for unpacked extension)
  * 3) https://clippa.in otherwise
  */
@@ -10,9 +10,6 @@ try {
         chrome.storage.sync.get(['clipperAppBase'], (data) => {
             if (data?.clipperAppBase && /^https?:\/\//i.test(data.clipperAppBase)) {
                 cachedStorageBase = data.clipperAppBase.replace(/\/$/, '');
-                try {
-                    localStorage.setItem('clipperAppBase', cachedStorageBase);
-                } catch (_) { /* ignore */ }
             }
         });
     }
@@ -20,14 +17,6 @@ try {
 
 function getAppBase() {
     if (cachedStorageBase) return cachedStorageBase;
-    try {
-        const stored = localStorage.getItem('clipperAppBase');
-        if (stored && /^https?:\/\//i.test(stored)) {
-            return stored.replace(/\/$/, '');
-        }
-    } catch (_) {
-        /* ignore */
-    }
 
     try {
         if (typeof chrome !== 'undefined' && chrome.runtime?.getManifest) {
@@ -70,7 +59,13 @@ function addClipButton() {
     targetRow.insertBefore(btn, targetRow.firstChild);
 }
 
+let currentObserver = null;
+
 function attachObserver() {
+    if (currentObserver) {
+        currentObserver.disconnect();
+        currentObserver = null;
+    }
     const target = findActionsRow() || document.querySelector('#content') || document.body;
     if (!target || target.dataset.clipperObserved === '1') return;
     target.dataset.clipperObserved = '1';
@@ -85,12 +80,17 @@ function attachObserver() {
             // Re-scope if actions row appeared later
             if (!findActionsRow()?.dataset?.clipperObserved) {
                 target.dataset.clipperObserved = '';
+                observer.disconnect();
+                if (currentObserver === observer) {
+                    currentObserver = null;
+                }
                 attachObserver();
             }
         }, 500);
     });
 
-    observer.observe(target, { childList: true, subtree: true });
+    currentObserver = observer;
+    currentObserver.observe(target, { childList: true, subtree: true });
 }
 
 addClipButton();

@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import React, { useState, useEffect, useRef } from "react";
 import { secondsToTime } from "@/lib/utils";
 
 export interface StoryboardSpec {
@@ -21,14 +20,11 @@ interface ThumbnailStripProps {
 }
 
 export function ThumbnailStrip({ duration, storyboards, trackRef }: ThumbnailStripProps) {
-    const [hoverInfo, setHoverInfo] = useState<{
-        x: number;
-        time: number;
-        bgPos: string;
-        imgUrl: string;
-        thumbW: number;
-        thumbH: number;
-    } | null>(null);
+    const [isHovering, setIsHovering] = useState(false);
+    const isHoveringRef = useRef(false);
+    const tooltipRef = useRef<HTMLDivElement>(null);
+    const bgRef = useRef<HTMLDivElement>(null);
+    const timeRef = useRef<HTMLSpanElement>(null);
 
     if (!storyboards || duration <= 0) return null;
 
@@ -84,10 +80,26 @@ export function ThumbnailStrip({ duration, storyboards, trackRef }: ThumbnailStr
             const popoverWidth = 144;
             const safeX = Math.max(popoverWidth / 2, Math.min(rect.width - popoverWidth / 2, x));
 
-            setHoverInfo({ x: safeX, time: hoverTime, bgPos, imgUrl, thumbW, thumbH });
+            if (!isHoveringRef.current) {
+                setIsHovering(true);
+                isHoveringRef.current = true;
+            }
+            if (tooltipRef.current) {
+                tooltipRef.current.style.left = `${safeX}px`;
+            }
+            if (bgRef.current) {
+                bgRef.current.style.backgroundImage = `url(${imgUrl})`;
+                bgRef.current.style.backgroundPosition = bgPos;
+            }
+            if (timeRef.current) {
+                timeRef.current.innerText = secondsToTime(hoverTime).substring(0, 8);
+            }
         };
 
-        const handleMouseLeave = () => setHoverInfo(null);
+        const handleMouseLeave = () => {
+            setIsHovering(false);
+            isHoveringRef.current = false;
+        };
 
         track.addEventListener("mousemove", handleMouseMove);
         track.addEventListener("mouseleave", handleMouseLeave);
@@ -100,30 +112,21 @@ export function ThumbnailStrip({ duration, storyboards, trackRef }: ThumbnailStr
 
     return (
         <div className="relative w-full pointer-events-none">
-            <AnimatePresence>
-                {hoverInfo && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 4, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 4, scale: 0.95 }}
-                        transition={{ duration: 0.15, ease: "easeOut" }}
-                        className="pointer-events-none absolute -top-28 z-30 flex -translate-x-1/2 flex-col items-center rounded-2xl border border-border/80 bg-background/95 p-1.5 shadow-2xl backdrop-blur-md"
-                        style={{ left: hoverInfo.x }}
-                    >
-                        <div
-                            className="h-20 w-36 rounded-xl bg-no-repeat shadow-inner"
-                            style={{
-                                backgroundImage: `url(${hoverInfo.imgUrl})`,
-                                backgroundPosition: hoverInfo.bgPos,
-                                backgroundSize: "auto",
-                            }}
-                        />
-                        <span className="mt-1 font-mono text-[11px] font-semibold text-foreground">
-                            {secondsToTime(hoverInfo.time).substring(0, 8)}
-                        </span>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            <div
+                ref={tooltipRef}
+                style={{ display: isHovering ? "flex" : "none" }}
+                className="pointer-events-none absolute -top-28 z-30 flex -translate-x-1/2 flex-col items-center rounded-2xl border border-border/80 bg-background/95 p-1.5 shadow-2xl backdrop-blur-md transition-opacity duration-150"
+            >
+                <div
+                    ref={bgRef}
+                    className="h-20 w-36 rounded-xl bg-no-repeat shadow-inner"
+                    style={{
+                        backgroundSize: "auto",
+                    }}
+                />
+                <span ref={timeRef} className="mt-1 font-mono text-[11px] font-semibold text-foreground">
+                </span>
+            </div>
         </div>
     );
 }

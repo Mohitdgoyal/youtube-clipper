@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { backendFetch } from "@/lib/backend-client";
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const backendRes = await backendFetch("/api/health/cookies");
   const data = await backendRes.json().catch(() => ({

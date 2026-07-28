@@ -438,7 +438,14 @@ router.get("/clip/:id", async (req, res) => {
 
 router.get("/clip/:id/download", async (req, res) => {
     const job = await dbService.getJob(req.params.id);
-    if (!job || !job.storage_path || !fs.existsSync(job.storage_path)) {
+    if (!job || !job.storage_path) {
+        return res.status(404).json({ error: "File not found" });
+    }
+
+    const safeName = path.basename(job.storage_path);
+    const fullPath = path.join(UPLOADS_DIR, safeName);
+
+    if (!fs.existsSync(fullPath)) {
         return res.status(404).json({ error: "File not found" });
     }
 
@@ -447,7 +454,7 @@ router.get("/clip/:id/download", async (req, res) => {
     const filename = (req.query.filename as string) || `clip${ext}`;
 
     res.setHeader("Content-Type", contentType);
-    return res.download(job.storage_path, filename);
+    return res.download(fullPath, filename);
 });
 
 router.get("/clip/:id/events", async (req, res) => {

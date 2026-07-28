@@ -27,11 +27,31 @@ async function cleanupOldJobsAndFiles() {
 async function cleanupTempUploads() {
   if (!fs.existsSync(UPLOADS_DIR)) return;
   const cutoffMs = Date.now() - 24 * 60 * 60 * 1000;
-  const files = await fs.promises.readdir(UPLOADS_DIR);
   const knownPaths = new Set(await dbService.listStoragePaths());
   let removed = 0;
+  let batch: string[] = [];
 
-  for (const name of files) {
+  const processBatch = async () => {
+    if (batch.length === 0) return;
+    await Promise.all(batch.map(async (full) => {
+      try {
+        const stat = await fs.promises.stat(full);
+        if (stat.mtimeMs < cutoffMs) {
+          await fs.promises.unlink(full);
+          removed++;
+        }
+      } catch (err) {
+        console.warn(`[Cleanup] Failed to delete temp file ${full}:`, err);
+      }
+    }));
+    batch = [];
+  };
+
+  const dir = await fs.promises.opendir(UPLOADS_DIR);
+  for await (const dirent of dir) {
+    if (!dirent.isFile()) continue;
+    const name = dirent.name;
+
     const isTemp =
       name.endsWith(".vtt") ||
       name.includes("-fast.mp4") ||
@@ -46,16 +66,12 @@ async function cleanupTempUploads() {
     if (!isTemp && !isOrphanClip) continue;
 
     const full = path.join(UPLOADS_DIR, name);
-    try {
-      const stat = await fs.promises.stat(full);
-      if (stat.mtimeMs < cutoffMs) {
-        await fs.promises.unlink(full);
-        removed++;
-      }
-    } catch {
-      // ignore
+    batch.push(full);
+    if (batch.length >= 10) {
+      await processBatch();
     }
   }
+  await processBatch();
 
   if (removed > 0) {
     console.log(`Cleaned up ${removed} temp/orphan upload file(s)`);

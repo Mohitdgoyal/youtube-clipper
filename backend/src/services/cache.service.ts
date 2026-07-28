@@ -11,6 +11,7 @@ interface CacheEntry<T> {
 class MemoryCache {
     private cache: Map<string, CacheEntry<any>> = new Map();
     private readonly defaultTTL: number;
+    private readonly MAX_SIZE = 500;
 
     constructor(defaultTTLSeconds: number = 300) { // 5 minutes default
         this.defaultTTL = defaultTTLSeconds * 1000;
@@ -32,6 +33,14 @@ class MemoryCache {
     }
 
     set<T>(key: string, data: T, ttlSeconds?: number): void {
+        while (this.cache.size >= this.MAX_SIZE && !this.cache.has(key)) {
+            const oldestKey = this.cache.keys().next().value;
+            if (oldestKey !== undefined) {
+                this.cache.delete(oldestKey);
+            } else {
+                break;
+            }
+        }
         const ttl = ttlSeconds ? ttlSeconds * 1000 : this.defaultTTL;
         this.cache.set(key, {
             data,

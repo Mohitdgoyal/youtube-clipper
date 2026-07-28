@@ -24,8 +24,11 @@ export const storageService = {
 
     async deleteFile(filename: string) {
         const filePath = path.join(UPLOADS_DIR, filename);
-        if (fs.existsSync(filePath)) {
+        try {
             await fs.promises.unlink(filePath);
+        } catch (err: unknown) {
+            const code = (err as NodeJS.ErrnoException)?.code;
+            if (code !== 'ENOENT' && code !== 'EBUSY' && code !== 'EPERM') throw err;
         }
     },
 

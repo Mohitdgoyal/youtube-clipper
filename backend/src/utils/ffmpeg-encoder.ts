@@ -126,6 +126,7 @@ export function getCodecEncoder(codecId: CodecId = "h264"): EncoderConfig {
     console.warn(`FFmpeg ${codecId} encoder ${targetCfg.encoder} failed probe; falling back to H.264`);
     const fallback = getVideoEncoder();
     codecCache.set(codecId, fallback);
+    
     return fallback;
 }
 

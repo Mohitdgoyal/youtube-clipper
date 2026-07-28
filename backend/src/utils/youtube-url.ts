@@ -35,7 +35,7 @@ export function isAllowedYouTubeUrl(raw: string): boolean {
     }
 
     // Reject playlist / mix URLs that would download more than one video
-    if (parsed.searchParams.has("list")) {
+    if (parsed.searchParams.has("list") && !parsed.searchParams.has("v")) {
         return false;
     }
 

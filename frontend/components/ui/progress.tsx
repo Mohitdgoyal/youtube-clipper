@@ -7,7 +7,14 @@ interface ProgressProps extends React.HTMLAttributes<HTMLDivElement> {
 
 export function Progress({ className, value, ...props }: ProgressProps) {
     return (
-        <div className={cn("relative h-2 w-full overflow-hidden rounded-full bg-secondary/50", className)} {...props}>
+        <div 
+            className={cn("relative h-2 w-full overflow-hidden rounded-full bg-secondary/50", className)} 
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={value}
+            {...props}
+        >
             <div
                 className="h-full bg-primary transition-all duration-300 ease-in-out rounded-full"
                 style={{ width: `${Math.min(100, Math.max(0, value || 0))}%` }}

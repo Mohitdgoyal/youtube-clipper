@@ -78,8 +78,11 @@ function parseDownloadProgress(str: string, sectionDurationSec: number, onProgre
     }
 }
 
-function feedYtDlpOutput(chunk: string, sectionDurationSec: number, onProgress?: (n: number) => void) {
-    for (const line of chunk.split(/\r|\n/)) {
+function feedYtDlpOutput(chunk: string, sectionDurationSec: number, state: { remainder: string }, onProgress?: (n: number) => void) {
+    const combined = state.remainder + chunk;
+    const lines = combined.split('\n');
+    state.remainder = lines.pop() || "";
+    for (const line of lines) {
         if (line.trim()) parseDownloadProgress(line, sectionDurationSec, onProgress);
     }
 }
@@ -133,6 +136,7 @@ function runYtDlp(
         let lastByteCount = 0;
         let lastGrowthAt = Date.now();
         let sawAnyBytes = false;
+        const parseState = { remainder: "" };
 
         const finish = (fn: () => void) => {
             if (settled) return;
@@ -146,7 +150,7 @@ function runYtDlp(
             const str = data.toString();
             stderrTail = (stderrTail + str).slice(-12_000);
             // Progress only — do NOT reset stall timer on stderr (ffmpeg spam while hung)
-            feedYtDlpOutput(str, sectionDurationSec, onProgress);
+            feedYtDlpOutput(str, sectionDurationSec, parseState, onProgress);
         };
 
         yt.stdout.on("data", onChunk);
@@ -404,9 +408,13 @@ export const videoService = {
         const ff = spawn(ffmpegPath, ffmpegArgs);
         if (onProgress) onProgress(burnSubs ? 50 : 90);
 
+        let remainder = "";
         ff.stderr.on("data", (data) => {
             if (!burnSubs || !durationSeconds || !onProgress) return;
-            for (const line of data.toString().split(/\r|\n/)) {
+            const combined = remainder + data.toString();
+            const lines = combined.split('\n');
+            remainder = lines.pop() || "";
+            for (const line of lines) {
                 if (!line.trim()) continue;
                 const timeMatch = line.match(/time=(\d+(?:\.\d+)?|\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?)/);
                 if (!timeMatch) continue;

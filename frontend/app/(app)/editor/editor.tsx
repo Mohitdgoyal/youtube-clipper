@@ -22,29 +22,10 @@ const SESSION_USER = { id: "personal-user", name: "Personal User" };
 
 async function triggerDownload(filename: string, signedUrl: string | null | undefined, jobId: string) {
   const proxyHref = `/api/clip/${jobId}/download?filename=${encodeURIComponent(filename)}`;
-
-  if (signedUrl) {
-    try {
-      const res = await fetch(signedUrl);
-      if (res.ok) {
-        const blob = await res.blob();
-        const objectUrl = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = objectUrl;
-        anchor.download = filename;
-        document.body.appendChild(anchor);
-        anchor.click();
-        document.body.removeChild(anchor);
-        URL.revokeObjectURL(objectUrl);
-        return;
-      }
-    } catch {
-      // fall through to same-origin proxy
-    }
-  }
+  const downloadUrl = signedUrl || proxyHref;
 
   const anchor = document.createElement("a");
-  anchor.href = proxyHref;
+  anchor.href = downloadUrl;
   anchor.download = filename;
   anchor.rel = "noopener";
   document.body.appendChild(anchor);
@@ -121,8 +102,8 @@ export default function Editor() {
         setStoryboards(null);
         setIsMetadataLoading(false);
       };
-      const id = setTimeout(reset, 0);
-      return () => clearTimeout(id);
+      reset();
+      return;
     }
 
     const controller = new AbortController();

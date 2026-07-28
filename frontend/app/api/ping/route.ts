@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
+import { backendFetch } from "@/lib/backend-client";
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const backendApi = process.env.BACKEND_API_URL || "http://localhost:3001";
-
   try {
-    const res = await fetch(`${backendApi}/api/ping`, { cache: "no-store" });
+    const res = await backendFetch('/api/ping', { cache: "no-store" });
     const data = await res.json();
     return NextResponse.json(data, { status: res.status });
   } catch (err) {
